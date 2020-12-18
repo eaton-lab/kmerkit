@@ -9,7 +9,9 @@ KMC Docs: https://github.com/refresh-bio/KMC/blob/master/API.pdf
 KMC-tools Docs: https://github.com/refresh-bio/KMC/blob/master/kmc_tools.pdf
 """
 
+
 import os
+import glob
 import subprocess
 import pandas as pd
 from loguru import logger
@@ -24,7 +26,7 @@ class Kcount:
 
         # store input params
         self.name = name
-        self.files = files
+        self.files = os.path.realpath(os.path.expanduser(files))
         self.workdir = os.path.realpath(os.path.expanduser(workdir))
         self.kmersize = kmersize
         self.name_split = name_split
@@ -34,8 +36,25 @@ class Kcount:
         self.files_to_names = {}
         self.statsdf = None
 
+        # expands wildcard operators to get filenames from string
+        self.expand_filenames()
+
         # constructs statsdf and names_to_files
         self.check_samples()
+
+
+    def expand_filenames(self):
+        """
+        Allows for selecting multiple input files using wildcard
+        operators like "./fastqs/*.fastq.gz" to select all fastq.gz
+        files in the folder fastqs.
+
+        TODO: could use regex operators instead for more flexibility...
+        """
+        if isinstance(self.files, (str, bytes)):
+            self.files = glob.glob(self.files)
+        logger.debug("found {} input files".format(len(self.files)))
+
 
 
     def check_samples(self):
@@ -148,13 +167,10 @@ if __name__ == "__main__":
 
 
     # test dataset
-    fileslist = [
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/1A_0_R1_.fastq.gz",
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/2E_0_R1_.fastq.gz",
-    ]
+    FILES = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R1_.fastq.gz"
 
     # example
-    counter = Kcount(name="test", workdir="/tmp/", files=fileslist, kmersize=17, name_split="_R")
+    counter = Kcount(name="test", workdir="/tmp/", files=FILES, kmersize=17, name_split="_R")
     counter.run()
 
     # statdf is saved to the workdir as a CSV

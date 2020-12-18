@@ -45,7 +45,7 @@ class Kgroup:
         """
         
         # load the kcounts database to get all sample names
-        self.statdf = pd.read_csv(self.kcpath)
+        self.statdf = pd.read_csv(self.kcpath, index_col=0)
 
         # ...
 
@@ -85,18 +85,11 @@ if __name__ == "__main__":
     import kcount
 
     # test dataset
-    FILES = [
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/1A_0_R1_.fastq.gz",
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/1B_0_R1_.fastq.gz",
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/1C_0_R1_.fastq.gz",
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/2E_0_R1_.fastq.gz",
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/2F_0_R1_.fastq.gz",
-        "/home/deren/Documents/ipyrad/isolation/reftest_fastqs/2G_0_R1_.fastq.gz",
-    ]
+    FILES = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R1_.fastq.gz"
 
     PHENOS = {
-        1: ["1A_0", "1B_0", "1C_0"],
-        2: ["2E_0", "2F_0", "2G_0"],
+        1: ["1A_0", "1B_0", "1C_0", "1D_0"],
+        2: ["2E_0", "2F_0", "2G_0", "2H_0"],
     }
 
     # build database
@@ -116,5 +109,5 @@ if __name__ == "__main__":
         workdir="/tmp",
         phenos=PHENOS,
     )
-    print(grouper.statdf.T)
+    print(grouper.statdf)
 
