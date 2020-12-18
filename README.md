@@ -9,11 +9,11 @@ Testing scripts for kmer research
   - A class for counting kmers to create kmc databases in workdir
 ```python
 # example is something like this...
-Kcount(fastqs, kmersize=17, workdir="/tmp", name_split="_R")
+Kcount(name="test", workdir="/tmp", kmersize=35, name_split="_R", files="./*.fastq.gz")
 ```
   - Code for merging databases into groups based on input pheno file.
 ```python
-Kgroup(phenos.csv, mindepth=2, maxdepth=1000, workdir="/tmp")
+Kgroup(name="test", workdir="/tmp", phenos="pheno.txt")
 ```
   - figure out whether we need non-canonical kmers...
   - Code for simple presence-absence search with cutoffs (e.g., dioecy study)
