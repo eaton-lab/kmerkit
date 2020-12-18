@@ -12,6 +12,7 @@ KMC-tools Docs: https://github.com/refresh-bio/KMC/blob/master/kmc_tools.pdf
 import os
 import subprocess
 import pandas as pd
+from loguru import logger
 
 
 
@@ -19,11 +20,12 @@ class Kcount:
     """
     Calls the kmc counting functions to create a database.
     """
-    def __init__(self, files, outdir, kmersize, name_split="_"):
+    def __init__(self, name, workdir, files, kmersize, name_split="_"):
 
         # store input params
+        self.name = name
         self.files = files
-        self.outdir = outdir
+        self.workdir = os.path.realpath(os.path.expanduser(workdir))
         self.kmersize = kmersize
         self.name_split = name_split
 
@@ -56,14 +58,15 @@ class Kcount:
 
         # fill dataframe with sample names and column names
         self.statsdf = pd.DataFrame(
-            columns=sample_names,
-            index=[
+            index=sample_names,
+            columns=[
                 'kmers_total', 
                 'kmers_unique',
                 'kmers_unique_counted',
                 'reads_total', 
                 'kmers_below_thresh', 
                 'kmers_above_thresh',
+                # 'fastq_path',
             ],
             data=0,
             dtype=int,
@@ -84,12 +87,16 @@ class Kcount:
         """
         takes a fastq file and calls KMC count on it.
         """
-        # create command: 'kmc -k17 inputfastq outname outdir'
+
+        # get sample name
+        sname = self.files_to_names[filename]
+
+        # create command: 'kmc -k17 inputfastq outname workdir'
         cmd = [
             "kmc", "-k{}".format(self.kmersize), 
             filename,
-            self.files_to_names[filename],
-            self.outdir,
+            sname,
+            self.workdir,
         ]
 
         # call subprocess on the command
@@ -108,22 +115,28 @@ class Kcount:
             key, val = line.split(" : ")
             
             if key.strip() == "Total no. of k-mers":
-                self.statsdf.loc["kmers_total"] = int(val.strip())
+                self.statsdf.loc[sname, "kmers_total"] = int(val.strip())
 
             if key.strip() == "No. of unique k-mers":
-                self.statsdf.loc["kmers_unique"] = int(val.strip())
+                self.statsdf.loc[sname, "kmers_unique"] = int(val.strip())
 
             if key.strip() == "No. of unique counted k-mers":
-                self.statsdf.loc["kmers_unique_counted"] = int(val.strip())
+                self.statsdf.loc[sname, "kmers_unique_counted"] = int(val.strip())
 
             if key.strip() == "Total no. of reads":
-                self.statsdf.loc["reads_total"] = int(val.strip())
+                self.statsdf.loc[sname, "reads_total"] = int(val.strip())
 
             if key.strip() == "No. of unique k-mers above max. threshold":
-                self.statsdf.loc["kmers_above_thresh"] = int(val.strip())
+                self.statsdf.loc[sname, "kmers_above_thresh"] = int(val.strip())
 
             if key.strip() == "No. of unique k-mers below min. threshold":
-                self.statsdf.loc["kmers_below_thresh"] = int(val.strip())
+                self.statsdf.loc[sname, "kmers_below_thresh"] = int(val.strip())
+
+        # save database file to the workdir
+
+        path = os.path.join(self.workdir, self.name + "_kcounts.csv")
+        self.statsdf.to_csv(path)
+        logger.info(f"database updated [{sname}] ({path})")
 
 
 
@@ -137,10 +150,10 @@ if __name__ == "__main__":
     ]
 
     # example
-    counter = Kcount(fileslist, "./", 17, name_split="_R")
+    counter = Kcount(name="test", workdir="/tmp/", files=fileslist, kmersize=17, name_split="_R")
     counter.run()
 
-    # print stats
+    # statdf is saved to the workdir as a CSV
     print(counter.statsdf)
 
     # show output database.

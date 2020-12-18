@@ -23,6 +23,7 @@ Kcompare(...)
   - Code for gwas/regression, incorporating covariance matrix (phylogeny or kinship)
 ```python
 Kregression(...)
+
 ```
   - Code for analysis and visualization (scikit-learn, toyplot, etc.)
 ```python
