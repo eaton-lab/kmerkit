@@ -4,24 +4,48 @@ Testing scripts for kmer research
 ## TODO list:
 
 
-#### 0. Code development
+#### 0. Code development: ideas for classes
 
-  - Develop a class for counting kmers
-  - Develop a class for merging databases into groups based on input pheno file.
-
+  - A class for counting kmers to create kmc databases in workdir
 ```python
 # example is something like this...
-Kcount(fastqs, kmersize=17, outdir="/tmp", name_split="_R")
-Kgroup(phenos, mindepth=2, maxdepth=1000)
+Kcount(fastqs, kmersize=17, workdir="/tmp", name_split="_R")
+```
+  - Code for merging databases into groups based on input pheno file.
+```python
+Kgroup(phenos.csv, mindepth=2, maxdepth=1000, workdir="/tmp")
 ```
   - figure out whether we need non-canonical kmers...
-  - Develop code for simple presence-absence search with cutoffs (e.g., dioecy study)
-  - Develop code for regression tests 
-  - Develop code for analysis and visualization (scikit-learn, toyplot, etc.)
+  - Code for simple presence-absence search with cutoffs (e.g., dioecy study)
+```python
+Kcompare(...)
+```
+  - Code for gwas/regression, incorporating covariance matrix (phylogeny or kinship)
+```python
+Kregression(...)
+```
+  - Code for analysis and visualization (scikit-learn, toyplot, etc.)
+```python
+Kanalyze(...)
+```
+
+  - Code to get fastqs containing kmers of interest
+```python
+Kmapping(...)
+```
 
 
 #### 1. Pedicularis study
-- Simple counting method
+
+```python
+import glob
+import kmertesting as km
+allfastqs = glob.glob("Pedicularis_*.fastq.gz")
+km.Kcount(allfastqs, kmersize=35, workdir="/tmp", name_split="_R")
+km.Kgroup(forked.csv, mindepth=2, workdir="/tmp")
+km.Kcompare(workdir="/tmp")
+km.Kmapping(...)
+```
   - group 100 samples into forked or non-forked pools (bash scripts)
   - count 35-mers in each pool (jellyfish)
   - identify fork-associated kmers (custom scripts)
@@ -29,8 +53,6 @@ Kgroup(phenos, mindepth=2, maxdepth=1000)
   - map reads to reference to identify scaffolds with many kmers (Python)
   - search annotation for genes in these regions.
 
-- Kmergwas method
-  -...
 
 
 #### 2. Amaranth palmeri & tuberculatus data
