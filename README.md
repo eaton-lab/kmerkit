@@ -4,6 +4,22 @@ Testing scripts for kmer research
 ## TODO list:
 
 
+#### 0. Code development
+
+  - Develop a class for counting kmers
+  - Develop a class for merging databases into groups based on input pheno file.
+
+```python
+# example is something like this...
+Kcount(fastqs, kmersize=17, outdir="/tmp", name_split="_R")
+Kgroup(phenos, mindepth=2, maxdepth=1000)
+```
+  - figure out whether we need non-canonical kmers...
+  - Develop code for simple presence-absence search with cutoffs (e.g., dioecy study)
+  - Develop code for regression tests 
+  - Develop code for analysis and visualization (scikit-learn, toyplot, etc.)
+
+
 #### 1. Pedicularis study
 - Simple counting method
   - group 100 samples into forked or non-forked pools (bash scripts)
