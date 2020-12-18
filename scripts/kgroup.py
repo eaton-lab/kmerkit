@@ -26,18 +26,29 @@ class Kgroup:
         # store parameters
         self.name = name
         self.workdir = os.path.realpath(os.path.expanduser(workdir))
-        self.statsdf = os.path.join(self.workdir, self.name + "_kcounts.csv")
+        self.kcpath = os.path.join(self.workdir, self.name + "_kcounts.csv")
         self.phenos = phenos
+
+        # attributes to be filled
+        self.statsdf = None
         self.imap = {}
+
+        # fills statsdf and imap
+        self.parse_phenos_to_imap()
+
 
 
     def parse_phenos_to_imap(self):
         """
-        Parse phenotype input that is either a dict or CSV
+        Parse phenotype input that is either a dict or CSV, 
+        check all names for match with database files in workdir.
         """
         
         # load the kcounts database to get all sample names
+        self.statdf = pd.read_csv(self.kcpath)
+
         # ...
+
 
 
     def get_union_complex(self):
@@ -89,9 +100,21 @@ if __name__ == "__main__":
     }
 
     # build database
-    counter = kcount.Kcount(FILES, kmersize=17, name_split="_R", workdir="/tmp")
+    counter = kcount.Kcount(
+        name="test", 
+        workdir="/tmp",
+        files=FILES, 
+        kmersize=17, 
+        name_split="_R",
+    )
     counter.run()
 
+
     # group database
-    grouper = Kgroup(PHENOS, workdir="/tmp")
+    grouper = Kgroup(
+        name="test",
+        workdir="/tmp",
+        phenos=PHENOS,
+    )
+    print(grouper.statdf.T)
 

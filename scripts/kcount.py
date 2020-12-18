@@ -49,6 +49,9 @@ class Kcount:
             os.path.basename(i.split(self.name_split)[0]) for i in self.files
         ]
 
+        # append 'name' to all sample names
+        sample_names = [f"{self.name}_{i}" for i in sample_names]
+
         # store dictionaries for mapping names and files
         self.names_to_files = dict(zip(sample_names, self.files))
         self.files_to_names = dict(zip(self.files, sample_names))
@@ -105,6 +108,7 @@ class Kcount:
             stderr=subprocess.STDOUT, 
             stdout=subprocess.PIPE,
             check=True,
+            cwd=self.workdir,
         )     
 
         # parse STDOUT to get the kmer stats
