@@ -10,6 +10,7 @@ like merge or intersect on kmers.
 
 import os
 import pandas as pd
+from loguru import logger
 
 
 

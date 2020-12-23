@@ -1,0 +1,11 @@
+# fam, ind, father, mother, sex, phenotype, genos (0 means missing!)...
+0 0 0 0 0 0 A A T T
+0 1 0 0 0 0 A A A T
+1 0 0 0 0 0 A A A T
+1 1 0 0 0 0 A A A T
+2 0 0 0 0 0 A A A T
+2 1 0 0 0 0 A A T T
+3 0 0 0 0 1 A T T T
+3 1 0 0 0 1 A T A T
+4 0 0 0 0 0 A A A T
+4 1 0 0 0 1 T T A T
