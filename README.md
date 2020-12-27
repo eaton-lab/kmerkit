@@ -13,40 +13,40 @@ PHENOS = "/tmp/phenos.csv"
 
 # count kmers
 kmpy.Kcount(
-  name='test', 
-  workdir='/tmp', 
-  fastq_path=FASTQS, 
-  kmersize=35, 
-  name_split="_R",
+    name='test', 
+    workdir='/tmp', 
+    fastq_path=FASTQS, 
+    kmersize=35, 
+    name_split="_R",
 ).run()
 
 # find kmers unique to one group versus another
 kmpy.Kgroup(
-  name='test', 
-  workdir='/tmp', 
-  phenos=PHENOS,
-  trait='trait',
-  operation_g0="union",
-  operation_g1="intersect", 
-  operation_g0g1="subtract",
-  mindepth_g0=5,
-  mindepth_g1=5,
-  mindepth_g0g1=None,
-  maxdepth_g0=100,
-  maxdepth_g1=100,
-  maxdepth_g0g1=None,
-  reverse=True,
-  force=True,
+    name='test', 
+    workdir='/tmp', 
+    phenos=PHENOS,
+    trait='trait',
+    operation_g0="union",
+    operation_g1="intersect", 
+    operation_g0g1="subtract",
+    mindepth_g0=5,
+    mindepth_g1=5,
+    mindepth_g0g1=None,
+    maxdepth_g0=100,
+    maxdepth_g1=100,
+    maxdepth_g0g1=None,
+    reverse=True,
+    force=True,
 ).run()
 
 # get fastq reads filtered to only those matching target kmers
 kmpy.Kfilter(
-  name='test',
-  workdir='/tmp',
-  fastq_path=FASTQS,
-  group_kmers="/tmp/kgroup_test",
-  name_split="_R",
-  mindepth=5,
+    name='test',
+    workdir='/tmp',
+    fastq_path=FASTQS,
+    group_kmers="/tmp/kgroup_test",
+    name_split="_R",
+    mindepth=5,
 ).run()  
 
 ```
@@ -96,17 +96,17 @@ km.Kcount(name="fork", workdir="/pinky/", fastq_path=FASTQS, kmersize=35, name_s
 # intersect is no good for RAD data, instead we should do 'union' and require that 
 # a kmer is found in at least xx coverage across yy samples.
 km.Kgroup(
-  name="fork", 
-  workdir="/pinky/", 
-  phenos=PHENOS,
-  trait="forked", 
-  operation_g0="union",               # all kmers in samples w/o fork
-  operation_g1="union",               # all kmers in samples w/  fork
-  operation_g0g1="counters_subtract", # operate on counts, not presence/absence
-  mindepth_g0=1,                      # subtract kmer if present in ANY non-fork
-  mindepth_g1=10,                     # require kmer present in at least ... nsamples
-  mindepth_g0g1=50,                   # tweak this: how much more common is kmer in 1 than 0?
-  reverse=True,
+    name="fork", 
+    workdir="/pinky/", 
+    phenos=PHENOS,
+    trait="forked", 
+    operation_g0="union",               # all kmers in samples w/o fork
+    operation_g1="union",               # all kmers in samples w/  fork
+    operation_g0g1="counters_subtract", # operate on counts, not presence/absence
+    mindepth_g0=1,                      # subtract kmer if present in ANY non-fork
+    mindepth_g1=10,                     # require kmer present in at least ... nsamples
+    mindepth_g0g1=50,                   # tweak this: how much more common is kmer in 1 than 0?
+    reverse=True,
 ).run()
 
 # get original reads for each sample containing target kmers
@@ -138,16 +138,16 @@ km.Kcount(name="dioecy", workdir="/pinky/", fastq_path=FASTQS, kmersize=35, name
 # intersect is no good for RAD data, instead we should do 'union' and require that 
 # a kmer is found in at least xx coverage across yy samples.
 km.Kgroup(
-  name="dioecy", 
-  workdir="/pinky/", 
-  phenos=mindepth=2, 
-  trait="male", 
-  operation_g0="union",       # all kmers in samples that are female/hermaph.
-  operation_g1="intersect",   # shared kmers in samples that are male
-  operation_g0g1="subtract",
-  mindepth_g0=1,              # subtract kmer if present in ANY non-fork
-  mindepth_g1=10,             # require kmer present in at least ... nsamples
-  reverse=True,
+    name="dioecy", 
+    workdir="/pinky/", 
+    phenos=mindepth=2, 
+    trait="male", 
+    operation_g0="union",       # all kmers in samples that are female/hermaph.
+    operation_g1="intersect",   # shared kmers in samples that are male
+    operation_g0g1="subtract",
+    mindepth_g0=1,              # subtract kmer if present in ANY non-fork
+    mindepth_g1=10,             # require kmer present in at least ... nsamples
+    reverse=True,
 ).run()
 
 # get original reads for each sample containing target kmers
