@@ -34,21 +34,74 @@ OUTPUT_PARAMS:
 
 class Kgroup:
     """
-    Finds existing database using the CSV in 'workdir/name'.
-    Group samples in database based on phenos info (dict or csv)
-    and calls union function to get shared kmer counts.
+    Perform operation on two groups of samples grouped by a trait (column)
+    in the phenotype data. Kmer counts within each group are combined
+    using operators 'union' or 'intersect' for groups g0 and g1. Then the 
+    operator subtract ... is used to compare the two groups. Example:
+    
+    # kmers in all samples A,B,C (intersect) but not any of D,E,F (union)
+    (A * B * C) - (D + E + F) 
 
     Parameters
-    ==========
+    ----------
     name (str):
-        ...
+        A name prefix for output files.
     workdir (str):
         ...
-    phenos (pd.DataFrame):
+    trait (str):
+        A column name from the phenos file containing binary data (0/1)
+        that will be used assign samples to groups 0 and 1 depending on
+        their value at this trait.
+    operation_g0 (str):
+        Options are "union" or "intersect". 
+    operation_g1 (str):
+        Options are "union" or "intersect". 
+    operation_g0g1 (str):
+        Options are "subtract" or "counters_subtract". See the reverse
+        option to reverse which group is subtracted from which.
+    mindepth_g0 (int):
         ...
+    mindepth_g1 (int):
+        ...
+    mindepth_g0g1 (int):
+        ...
+    ...
 
+    reverse (bool):
+        The default behavior is to subtract kmers in group 1 from group 0,
+        such that you are left with kmers in group 0 but not group 1.
+        If alternatively you want to find kmers in group 1 but not group 0
+        then you can set reverse to True.
+    force (bool):
+        Ignore existing files and overwrite using <name>.
+
+
+    Returns
+    ----------
+    None. This function produces output files in the working directory
+    which was specified in Kcount and loaded by Kgroup.
     """
-    def __init__(self, name, workdir, phenos):
+    def __init__(
+        self, 
+        name, 
+        workdir, 
+        phenos,
+        trait, 
+        operation_g0="union", 
+        operation_g1="intersect", 
+        operation_g0g1="subtract", 
+        mindepth_g0=5,
+        mindepth_g1=5,
+        mindepth_g0g1=None,
+        maxdepth_g0=1000,
+        maxdepth_g1=1000,
+        maxdepth_g0g1=None,
+        # maxcount_g0=1000,
+        # maxcount_g1=1000,
+        # maxcount_g0g1=None,
+        reverse=False,
+        force=False,
+        ):
 
         # store parameters
         self.name = name
@@ -62,33 +115,33 @@ class Kgroup:
         # attributes to be filled
         self.samples = []
         self.statsdf = None
-        self.imap = {}
 
         # get the kmctools binary for kmer set comparisons
         self.kmctools_binary = os.path.join(sys.prefix, "bin", "kmc_tools")
         logger.debug("using KMC binary: {}".format(self.kmctools_binary))
 
-        # fills statsdf and imap
+        # loads statsdf and phenos
         self.load_count_csv()
         self.load_phenos()
 
         # default parameters for calling .run_complex()
-        self.rundict = {
-            'name': 'test', 
-            'trait': 'trait',
-            'operation_g0': 'union',
-            'operation_g1': 'union',
-            'operation_g0g1': 'subtract',
-            'mindepth_g0': 1,
-            'mindepth_g1': 1,
-            'mindepth_g0g1': 1,
-            'maxdepth_g0': None,
-            'maxdepth_g1': None,
-            'maxdepth_g0g1': None,
+        self.params = {
+            'name': name, 
+            'trait': trait,
+            'operation_g0': operation_g0,
+            'operation_g1': operation_g1,
+            'operation_g0g1': operation_g0g1,
+            'mindepth_g0': mindepth_g0,
+            'mindepth_g1': mindepth_g1,
+            'mindepth_g0g1': mindepth_g0g1,
+            'maxdepth_g0': maxdepth_g0,
+            'maxdepth_g1': maxdepth_g1,
+            'maxdepth_g0g1': maxdepth_g0g1,
             # 'maxcount_g0': 1000,
             # 'maxcount_g1': 1000,
             # 'maxcount_g0g1': 1000,
-            'reverse': False,
+            'reverse': reverse,
+            'force': force,
         }
 
 
@@ -151,12 +204,12 @@ class Kgroup:
 
             # build input string
             cmd = [sname, "=", fpath]
-            if self.rundict['mindepth_g0']:
-                cmd.extend([f"-ci{self.rundict['mindepth_g0']}"])
-            if self.rundict['maxdepth_g0']:
-                cmd.extend([f"-cx{self.rundict['maxdepth_g0']}"])
-            # if self.rundict['maxcount_g0']:
-                # cmd.extend([f"-cs{self.rundict['maxcount_g0']}"])
+            if self.params['mindepth_g0']:
+                cmd.extend([f"-ci{self.params['mindepth_g0']}"])
+            if self.params['maxdepth_g0']:
+                cmd.extend([f"-cx{self.params['maxdepth_g0']}"])
+            # if self.params['maxcount_g0']:
+                # cmd.extend([f"-cs{self.params['maxcount_g0']}"])
             input_list.append(" ".join(cmd))
 
         for sname in group1.samples:
@@ -166,12 +219,12 @@ class Kgroup:
 
             # build input string
             cmd = [sname, "=", fpath]
-            if self.rundict['mindepth_g1']:
-                cmd.extend([f"-ci{self.rundict['mindepth_g1']}"])
-            if self.rundict['maxdepth_g1']:
-                cmd.extend([f"-cx{self.rundict['maxdepth_g1']}"])
-            # if self.rundict['maxcount_g1']:
-                # cmd.extend([f"-cs{self.rundict['maxcount_g1']}"])
+            if self.params['mindepth_g1']:
+                cmd.extend([f"-ci{self.params['mindepth_g1']}"])
+            if self.params['maxdepth_g1']:
+                cmd.extend([f"-cx{self.params['maxdepth_g1']}"])
+            # if self.params['maxcount_g1']:
+                # cmd.extend([f"-cs{self.params['maxcount_g1']}"])
             input_list.append(" ".join(cmd))
 
         # final spacer and return
@@ -183,7 +236,7 @@ class Kgroup:
         """
         Builds the 'complex' input string (see COMPLEX global above)
         to call complex operations using kmer_tools using user params
-        entered in self.rundict. This is called within self.run_complex()       
+        entered in self.params. This is called within self.run_complex()       
         """
         # get groups
         group0 = Group(self.samples, self.phenodf, trait=0)
@@ -193,23 +246,23 @@ class Kgroup:
         input_str = self.get_complex_input(group0, group1)
 
         # OUTPUT: (group1) - (group0) 
-        string0 = group0.get_string(self.rundict['operation_g0'])
-        string1 = group1.get_string(self.rundict['operation_g1'])
-        outname = self.prefix + "_" + self.rundict['name']
-        oper = ("-" if self.rundict["operation_g0g1"] == "subtract" else "~")
-        if self.rundict['reverse']:
+        string0 = group0.get_string(self.params['operation_g0'])
+        string1 = group1.get_string(self.params['operation_g1'])
+        outname = self.prefix + "_" + self.params['name']
+        oper = ("-" if self.params["operation_g0g1"] == "subtract" else "~")
+        if self.params['reverse']:
             output_str = f"{outname} = ({string1}) {oper} ({string0})"
         else:
             output_str = f"{outname} = ({string0}) {oper} ({string1})"
 
         # OUTPUT_PARAMS: ...
         opt = []
-        if self.rundict['mindepth_g0g1']:
-            opt.extend([f"-ci{self.rundict['mindepth_g0g1']}"])
-        if self.rundict['maxdepth_g0g1']:
-            opt.extend([f"-cx{self.rundict['maxdepth_g0g1']}"])
-        # if self.rundict['maxcount_g0g1']:
-            # opt.extend([f"-cx{self.rundict['maxcount_g0g1']}"])
+        if self.params['mindepth_g0g1']:
+            opt.extend([f"-ci{self.params['mindepth_g0g1']}"])
+        if self.params['maxdepth_g0g1']:
+            opt.extend([f"-cx{self.params['maxdepth_g0g1']}"])
+        # if self.params['maxcount_g0g1']:
+            # opt.extend([f"-cx{self.params['maxcount_g0g1']}"])
         oparams_str = " ".join(opt)
 
         # Build complex string and print to logger
@@ -224,99 +277,19 @@ class Kgroup:
 
 
 
-    def run_complex(
-        self, 
-        name, 
-        trait, 
-        operation_g0="union", 
-        operation_g1="intersect", 
-        operation_g0g1="subtract", 
-        mindepth_g0=5,
-        mindepth_g1=5,
-        mindepth_g0g1=None,
-        maxdepth_g0=1000,
-        maxdepth_g1=1000,
-        maxdepth_g0g1=None,
-        # maxcount_g0=1000,
-        # maxcount_g1=1000,
-        # maxcount_g0g1=None,
-        reverse=False,
-        force=False,
-        ):
+    def run(self):
         """
-        Perform operation on two groups of samples grouped by a trait (column)
-        in the phenotype data. Kmer counts within each group are combined
-        using operators 'union' or 'intersect' for groups g0 and g1. Then the 
-        operator subtract ... is used to compare the two groups. Example:
-        
-        # kmers in all samples A,B,C (intersect) but not any of D,E,F (union)
-        (A * B * C) - (D + E + F) 
-
-        Parameters
-        ----------
-        name (str):
-            A name prefix for output files.
-        trait (str):
-            A column name from the phenos file containing binary data (0/1)
-            that will be used assign samples to groups 0 and 1 depending on
-            their value at this trait.
-        operation_g0 (str):
-            Options are "union" or "intersect". 
-        operation_g1 (str):
-            Options are "union" or "intersect". 
-        operation_g0g1 (str):
-            Options are "subtract" or "counters_subtract". See the reverse
-            option to reverse which group is subtracted from which.
-        mindepth_g0 (int):
-            ...
-        mindepth_g1 (int):
-            ...
-        mindepth_g0g1 (int):
-            ...
-        ...
-
-        reverse (bool):
-            The default behavior is to subtract kmers in group 1 from group 0,
-            such that you are left with kmers in group 0 but not group 1.
-            If alternatively you want to find kmers in group 1 but not group 0
-            then you can set reverse to True.
-        force (bool):
-            Ignore existing files and overwrite using <name>.
-
-
-        Returns
-        ----------
-        None. This function produces output files in the working directory
-        which was specified in Kcount and loaded by Kgroup.
-
+        Create a 'complex' input file to run `kmc_tools complex ...`
         """
-        # store in hidden dict
-        self.rundict = {
-            'name': name, 
-            'trait': trait,
-            'operation_g0': operation_g0,
-            'operation_g1': operation_g1,
-            'operation_g0g1': operation_g0g1, 
-            'mindepth_g0': mindepth_g0,
-            'mindepth_g1': mindepth_g1,
-            'mindepth_g0g1': mindepth_g0g1,
-            'maxdepth_g0': maxdepth_g0,
-            'maxdepth_g1': maxdepth_g1,
-            'maxdepth_g0g1': maxdepth_g0g1,
-            # 'maxcount_g0': maxcount_g0,
-            # 'maxcount_g1': maxcount_g1,
-            # 'maxcount_g0g1': maxcount_g0g1,
-            'reverse': reverse,
-        }
-
         # check that output with 'name' does not already exist.
-        complex_file = self.prefix + "_" + self.rundict['name']
-        if not force:
+        complex_file = self.prefix + "_" + self.params['name']
+        if not self.params['force']:
             assert not os.path.exists(complex_file), (
             "output already exists for {name}, use force=True to overwrite")
 
         # check that 'trait' is in pheno.
-        assert trait in self.phenodf.columns, f"trait {trait} not in phenos" 
+        assert self.params['trait'] in self.phenodf.columns, (
+            f"trait {self.params['trait']} not in phenos")
 
         # get complex string
         complex_string = self.get_complex()
@@ -343,7 +316,7 @@ class Kgroup:
     def dump(self, mindepth=1, maxdepth=None, maxcount=None):
         """
         Dump kmers to text for a specified database. This is meant to be 
-        run after run_complex and to use the same rundict['name'].
+        run after run_complex and to use the same params['name'].
 
         kmc_tools transform /tmp/name dump /tmp/name_kmers.txt
         """
@@ -351,9 +324,9 @@ class Kgroup:
         # if counts is False then write 'compact' database
         cmd = [
             self.kmctools_binary, "transform", 
-            self.prefix + "_" + self.rundict['name'],
+            self.prefix + "_" + self.params['name'],
             "dump",
-            self.prefix + "_" + self.rundict['name'] + "_kmers.txt",
+            self.prefix + "_" + self.params['name'] + "_kmers.txt",
         ]
 
         if mindepth:
@@ -374,7 +347,7 @@ class Kgroup:
         )
 
         # count stats and report to logger
-        kfile = self.prefix + "_" + self.rundict['name'] + "_kmers.txt"
+        kfile = self.prefix + "_" + self.params['name'] + "_kmers.txt"
         with open(kfile, 'r') as indat:
             nkmers = sum(1 for i in indat)
         logger.info("{} kmers dumped to {}".format(nkmers, kfile))
@@ -470,12 +443,6 @@ if __name__ == "__main__":
         name="test",
         workdir="/tmp",
         phenos="/tmp/phenos.csv",
-    )
-
-
-    # get kmers in ALL 1s (-ci5), and in NO 0s (-ci5)
-    kgp.run_complex(
-        name='test',
         trait='trait',
         operation_g0="union",
         operation_g1="intersect", 
@@ -493,6 +460,6 @@ if __name__ == "__main__":
         force=True,
     )
 
-
     # dump the kmers to a file
+    kgp.run()
     kgp.dump(mindepth=5)
