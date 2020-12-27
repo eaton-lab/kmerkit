@@ -3,8 +3,6 @@ Testing scripts for kmer research
 
 
 ### Code in testing
-
-  - A class for counting kmers to create kmc databases in workdir
 ```python
 
 import kmpy
