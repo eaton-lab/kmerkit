@@ -74,30 +74,86 @@ kmpy.Kanalyze(...)
 
 ### Thoughts on applications in Eaton lab...
 
-```python
-import glob
-import kmpy as km
-allfastqs = glob.glob("Pedicularis_*.fastq.gz")
-km.Kcount(allfastqs, kmersize=35, workdir="/tmp", name_split="_R")
-km.Kgroup(forked.csv, mindepth=2, workdir="/tmp")
-km.Kcompare(workdir="/tmp")
-km.Kmapping(...)
-```
-  - group 100 samples into forked or non-forked pools (bash scripts)
-  - count 35-mers in each pool (jellyfish)
-  - identify fork-associated kmers (custom scripts)
+#### 1. Pedicularis RAD data:
+  - count 35-mers in each sample
+  - group 100 samples into forked or non-forked pools
+  - identify fork-associated kmers 
   - get reads containing kmers (Python)
   - map reads to reference to identify scaffolds with many kmers (Python)
   - search annotation for genes in these regions.
+
+```python
+
+import kmpy
+
+# prepare files
+FASTQS = "/pinky/.../Pedicularis_*.fastq.gz"
+PHENOS = "/pinky/.../Pedicularis_forked.csv"
+
+# count kmers in each sample and write database files
+km.Kcount(name="fork", workdir="/pinky/", fastq_path=FASTQS, kmersize=35, name_split="_R").run()
+
+# intersect is no good for RAD data, instead we should do 'union' and require that 
+# a kmer is found in at least xx coverage across yy samples.
+km.Kgroup(
+  name="fork", 
+  workdir="/pinky/", 
+  phenos=PHENOS,
+  trait="forked", 
+  operation_g0="union",               # all kmers in samples w/o fork
+  operation_g1="union",               # all kmers in samples w/  fork
+  operation_g0g1="counters_subtract", # operate on counts, not presence/absence
+  mindepth_g0=1,                      # subtract kmer if present in ANY non-fork
+  mindepth_g1=10,                     # require kmer present in at least ... nsamples
+  mindepth_g0g1=50,                   # tweak this: how much more common is kmer in 1 than 0?
+  reverse=True,
+).run()
+
+# get original reads for each sample containing target kmers
+km.Kfilter(name="fork", workdir="/pinky/newfastqs/", fastq_path=FASTQS, name_split="_R").run()
+
+```
 
 
 
 #### 2. Amaranth palmeri & tuberculatus data
 - rerun this analysis using 15-mers, to get 2 kmer files (palmeri and tuberc)
-  - Trimmomatic the reads
+  - Trim reads (maybe can skip...)
   - Pool into male and female pops
   - Jellfish each pool with k=15
   - Custom scripts - Python - identify unique male kmers given filter threshold
+
+
+```python
+
+import kmpy
+
+# prepare files
+FASTQS = "/pinky/.../Amaranth_fastqs/*.fastq.gz"
+PHENOS = "/pinky/.../Amaranth_sampled_sexed.csv"
+
+# count kmers in each sample and write database files
+km.Kcount(name="dioecy", workdir="/pinky/", fastq_path=FASTQS, kmersize=35, name_split="_R").run()
+
+# intersect is no good for RAD data, instead we should do 'union' and require that 
+# a kmer is found in at least xx coverage across yy samples.
+km.Kgroup(
+  name="dioecy", 
+  workdir="/pinky/", 
+  phenos=mindepth=2, 
+  trait="male", 
+  operation_g0="union",       # all kmers in samples that are female/hermaph.
+  operation_g1="intersect",   # shared kmers in samples that are male
+  operation_g0g1="subtract",
+  mindepth_g0=1,              # subtract kmer if present in ANY non-fork
+  mindepth_g1=10,             # require kmer present in at least ... nsamples
+  reverse=True,
+).run()
+
+# get original reads for each sample containing target kmers
+km.Kfilter(name="fork", workdir="/pinky/newfastqs/", fastq_path=FASTQS, name_split="_R").run()
+
+```
   
   
   
