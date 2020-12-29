@@ -13,23 +13,13 @@ import sys
 import subprocess
 import pandas as pd
 from loguru import logger
-from kmpy.utils import KmpyError
+from kmpy.utils import KmpyError, Group, COMPLEX
 
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
 
 
-COMPLEX = """\n
-INPUT:
-{input_string}
-
-OUTPUT:
-{output_string}
-
-OUTPUT_PARAMS:
-{output_params}
-"""
 
 
 class Kgroup:
@@ -47,26 +37,31 @@ class Kgroup:
     name (str):
         A name prefix for output files.
     workdir (str):
-        ...
+        Directory for output files, and where kmer database files are
+        currently located (and the .csv from kcount).
+    phenos (str):
+        Path to a CSV formatted phenotypes file with sample names as
+        index and trait names as columns. Values of 'trait' should be 
+        binary, 0 and 1 are used to assign samples to groups g0 or g1.
     trait (str):
-        A column name from the phenos file containing binary data (0/1)
-        that will be used assign samples to groups 0 and 1 depending on
-        their value at this trait.
+        A column name from the phenos file to use for this analysis. Values
+        should be binary (0/1).
     operation_g0 (str):
         Options are "union" or "intersect". 
     operation_g1 (str):
         Options are "union" or "intersect". 
     operation_g0g1 (str):
-        Options are "subtract" or "counters_subtract". See the reverse
-        option to reverse which group is subtracted from which.
+        Options are "subtract" or "counters_subtract". By default operations
+        perform as (g0 - g1). To instead subtract g0 from g1 use reverse=True.
     mindepth_g0 (int):
-        ...
+        kmers with occurrence < this cutoff are excluded from samples in g0
+        prior to the union or intersect operation (operation_g0).
     mindepth_g1 (int):
-        ...
+        kmers with occurrence < this cutoff are excluded from samples in g1
+        prior to the union or intersect operation (operation_g1).
     mindepth_g0g1 (int):
-        ...
-    ...
-
+        kmers with occurrence < this cutoff are excluded from the database
+        of kmers remaining after the subtraction operation (operation_g0g1).
     reverse (bool):
         The default behavior is to subtract kmers in group 1 from group 0,
         such that you are left with kmers in group 0 but not group 1.
@@ -75,11 +70,9 @@ class Kgroup:
     force (bool):
         Ignore existing files and overwrite using <name>.
 
-
     Returns
     ----------
-    None. This function produces output files in the working directory
-    which was specified in Kcount and loaded by Kgroup.
+    None. Writes kmc binary files to the working directory.
     """
     def __init__(
         self, 
@@ -200,7 +193,7 @@ class Kgroup:
         for sname in group0.samples:
 
             # get fastq file path
-            fpath = self.statsdf.loc[sname, "database_path"]
+            fpath = self.statsdf.loc[sname, "database"]
 
             # build input string
             cmd = [sname, "=", fpath]
@@ -215,7 +208,7 @@ class Kgroup:
         for sname in group1.samples:
 
             # get fastq file path
-            fpath = self.statsdf.loc[sname, "database_path"]
+            fpath = self.statsdf.loc[sname, "database"]
 
             # build input string
             cmd = [sname, "=", fpath]
@@ -238,9 +231,16 @@ class Kgroup:
         to call complex operations using kmer_tools using user params
         entered in self.params. This is called within self.run_complex()       
         """
-        # get groups
-        group0 = Group(self.samples, self.phenodf, trait=0)
-        group1 = Group(self.samples, self.phenodf, trait=1)
+
+        # get sample names in phenodf w/ trait=1 and in the database
+        subsample0 = self.phenodf[self.phenodf.trait == 0]
+        subsample0 = [i for i in subsample0.index if i in self.samples]        
+        subsample1 = self.phenodf[self.phenodf.trait == 1]
+        subsample1 = [i for i in subsample1.index if i in self.samples]
+
+        # get groups instances
+        group0 = Group(subsample0)
+        group1 = Group(subsample1)
 
         # INPUT: get sample names and filters
         input_str = self.get_complex_input(group0, group1)
@@ -309,6 +309,7 @@ class Kgroup:
             check=True,
             cwd=self.workdir,
         )
+        logger.info(f"new database: {self.prefix}_{self.params['name']}")
 
 
 
@@ -353,71 +354,6 @@ class Kgroup:
         logger.info("{} kmers dumped to {}".format(nkmers, kfile))
 
 
-class Group:
-    """
-    Stores subset of samples with a given trait value, and which are 
-    present in both databases. Can return sample list or a string for
-    computing the union of kmers in kmer_tools format: (A + B + C + D)
-    
-    samples: first filter, only samples we are considering.
-    phenodf: used to check trait values.
-    trait: used to select trait value for filtering.
-    """
-    def __init__(self, samples, phenodf, trait):
-        # store inputs
-        self.dbsamples = samples
-        self.phenodf = phenodf
-        self.trait = trait
-
-        # to be filled
-        self.samples = []
-        self.ustring = ""
-        self.istring = ""        
-
-        # filler funcs
-        self.subselect()       
-        self.get_union_string()
-        self.get_intersect_string()        
-
-
-    def subselect(self):
-        """
-        Returns a list of samples
-        """
-        # get sample names in phenodf that have trait=1
-        self.samples = self.phenodf[self.phenodf.trait == self.trait]
-
-        # only keep if samples are in the database too
-        self.samples = [i for i in self.samples.index if i in self.dbsamples]
-
-
-    def get_union_string(self):
-        """
-        Builds the union string of kmers in any samples
-        The counter shows the sum count of the kmer across all samples.
-        """
-        self.ustring = " + ".join(self.samples)
-        logger.debug(self.ustring)
-
-
-    def get_intersect_string(self):
-        """
-        Builds the intersect string of kmers in all samples. 
-        The counter shows the min count of the kmer is any one sample.
-        """
-        self.istring = " * ".join(self.samples)
-        logger.debug(self.istring)
-
-
-    def get_string(self, arg):
-        """
-        Returns either the union or intersect string depending on arg
-        """
-        if arg == "union":
-            return self.ustring
-        return self.istring
-
-
 
 
 
@@ -426,8 +362,16 @@ if __name__ == "__main__":
     # first run: python3 kcount.py 
 
     # fake data
-    ACC = ["1A_0", "1B_0", "1C_0", "1D_0", "2E_0", "2F_0", "2G_0", "2H_0"]
-    TRAITS = [0, 0, 0, 0, 1, 1, 1, 1] 
+    # ACC = ["1A_0", "1B_0", "1C_0", "1D_0", "2E_0", "2F_0", "2G_0", "2H_0"]
+    # TRAITS = [0, 0, 0, 0, 1, 1, 1, 1] 
+
+    ACC = [
+        "hybridus_SLH_AL_1060",
+        "hybridus_SLH_AL_1098",
+        "hybridus_SLH_AL_1099",
+        "hybridus_SLH_AL_1117",
+    ]
+    TRAITS = [0, 1, 1, 0]
 
     # build dataframe
     PHENOS = pd.DataFrame(
@@ -447,15 +391,13 @@ if __name__ == "__main__":
         operation_g0="union",
         operation_g1="intersect", 
         operation_g0g1="subtract",
-        mindepth_g0=5,
+        mindepth_g0=1,
         mindepth_g1=5,
         mindepth_g0g1=None,
-        maxdepth_g0=100,
-        maxdepth_g1=100,
+        maxdepth_g0=1000,
+        maxdepth_g1=1000,
         maxdepth_g0g1=None,
-        # maxcount_g0=1000,
-        # maxcount_g1=1000,
-        # maxcount_g0g1=None,
+        # maxcount=1000,
         reverse=True,
         force=True,
     )
