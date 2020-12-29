@@ -2,6 +2,7 @@
 Testing scripts for kmer research
 
 
+
 ### Code in testing
 ```python
 
@@ -61,7 +62,7 @@ kmpy.Kmatrix(...)
 
 
 # run plink and gemma with geno and pheno data
-kmpy.Kregression(...)
+kmpy.Kgwas(...)
 
 
 # visualize sample/group geno data (scikit-learn, toyplot, etc.)
@@ -118,10 +119,11 @@ km.Kfilter(name="fork", workdir="/pinky/newfastqs/", fastq_path=FASTQS, name_spl
 
 #### 2. Amaranth palmeri & tuberculatus data
 - rerun this analysis using 15-mers, to get 2 kmer files (palmeri and tuberc)
-  - Trim reads (maybe can skip...)
-  - Pool into male and female pops
-  - Jellfish each pool with k=15
-  - Custom scripts - Python - identify unique male kmers given filter threshold
+  - Trim reads (best to create streaming method in Kcount)
+  - count kmers in each sample
+  - group by M versus F/H
+  - target kmers are in 'intersect' on male plants.
+  - extract reads with kmers matching
 
 
 ```python
