@@ -1,6 +1,8 @@
 #!/usr/bin/env python 
 
 """
+Kcounts -> Kgroup -> Kmatrix -> Klearn
+
 A collection of scikit-learn machine learning applications for 
 testing associations between genotype matrices (kmers)
 and phenotypes using supervised learning, and for exploring 
