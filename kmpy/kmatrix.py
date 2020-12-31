@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
 """
+Kcounts -> Kgroup -> Kmatrix
+
 Takes kmer databases for N samples and constructs a matrix
 of (nsamples, nkmers) of either count or binary data.
-
 
 TODO: 
     - support count (non-binary) matrix
