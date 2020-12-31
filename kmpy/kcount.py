@@ -334,7 +334,7 @@ if __name__ == "__main__":
         name="hyb", 
         workdir="/tmp/", 
         fastq_path=FILES, 
-        kmersize=35, 
+        kmersize=31, 
         name_split="_R",
         trim_reads=True,
         subsample_reads=1e6,
