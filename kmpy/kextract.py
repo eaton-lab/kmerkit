@@ -1,19 +1,16 @@
 #!/usr/bin/env python
 
 """
-Class with functions for filtering fastq files based on a set of target kmers.
+Kcounts -> Kgroup -> Kextract
 
-TODO: 
-    - kmc does not currently support filtering paired reads, in the sense
-    of keeping R1 even if it does not contain a kmer, as long as its read
-    pair does contain the kmer... we can probably hack something together 
-    for this... especially since the reads are ordered...
-        1. get read1s matched.
-        2. get read2s matched.
-        3. get line indices of matched read1s
-        4. get line indices of matched read2s
-        5. get union of indices.
-        6. extract read pairs at all index lines.
+Extract fastq reads containing target kmers to produce new 
+fastq files with subset of matching read(pair)s. The fastq
+files that this is applied to do not need to have been 
+processed earlier by kcount or any other tool.
+
+TODO: option to not filter invariant kmers in Kgroup? Since excluding
+these may limit our ability to construct contigs? Not sure about this...
+
 """
 
 import os
@@ -30,19 +27,17 @@ from kmpy.utils import KmpyError
 # pylint: disable=too-many-instance-attributes
 
 
-class Kfilter:
+class Kextract:
     """
-    Filter fastq reads based on a set of target kmers and write to new files.
+    Extract fastq reads containing target kmers and write to new files.
 
-    Finds existing database using the CSV in 'workdir/name'.
-    Group samples in database based on phenos info (dict or csv)
-    and calls union function to get shared kmer counts.
+    Files 
 
     Parameters
     ==========
     name (str):
         Prefix name for the fastq files that will be written. 
-        Example: 'kfiltered' --> <workdir>/<name>_<sample_name>.fastq
+        Example: <workdir>/k_extract_<name>_<sample_name>.fastq
     workdir (str):
         Working directory where new filtered fastq files will be written.
         Examples: '/tmp' or '/tmp/newfastqs'.
@@ -52,6 +47,11 @@ class Kfilter:
     group_kmers (str):
         The prefix path for a kmc binary database with kmers.
         Examples: '/tmp/test_group'
+    name_split (str):
+        String on which to split fastq file names to extract sample 
+        names as the first item. Common values are "_" or ".fastq". 
+    mindepth (int):
+
 
     Attributes
     ===========
@@ -72,7 +72,7 @@ class Kfilter:
         
         # output prefix
         os.makedirs(self.workdir, exist_ok=True)
-        self.prefix = os.path.join(self.workdir, f"kfilter_{self.name}")
+        self.prefix = os.path.join(self.workdir, f"kextract_{self.name}")
 
         # get the kmctools binary for kmer set comparisons
         self.kmctools_binary = os.path.join(sys.prefix, "bin", "kmc_tools")
@@ -412,7 +412,7 @@ if __name__ == "__main__":
     FASTQS = "~/Documents/kmpy/data/hybridus_*.fastq.gz"
 
     # set up filter tool
-    kfilt = Kfilter(
+    kfilt = Kextract(
         name="test",
         workdir="/tmp",
         fastq_path=FASTQS,
