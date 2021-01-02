@@ -4,34 +4,9 @@
 """
 Kcount -> Kgroup
 
-Load a phenotypes CSV file and trait column (or imap dictionary in the API)
-to assign samples to groups; then apply kmer_tools operations
-to filter kmers for inclusion in the dataset based on:
-    - mincov: minimum frequency across all samples
-    - mincov_g0: minimum frequency in group 0
-    - mincov_g1: minimum frequency in group 1
-    - mincov_canon: minimum frequency across all samples of a kmer
-        being in present in both directional forms.
-
-Note: coverage in these filters refers to the number or frequency
-of samples in which the kmer is present. It does not refer to the 
-count (depth) of the kmer in one or more samples. To filter kmers
-based on counts you can use the 'mincount' args in kmpy.Kcount().
-
-TODO: 
-    - generalize this class to serve intermediate in kcount -> kmatrix
-
-CANON FILTER: Filter kmers that tend to only occur in one form or the
-other, likely due to adapters. 
-
-1. count c-kmers in each sample.
-2. count non-c-kmers in each sample and set counters=1
-3. get union (sum counts) of c-kmers (c-UNION)
-4. get union (sum counts) of non-c-kmers (non-UNION)
-
-for each sample; 
-    set count = 1
-    UNION -= sample
+** currently deprecated in place of kfilter **
+Applied union and intersect operations on kmer COUNTS to find 
+a target set of kmers for downstream analyses.
 
 """
 
@@ -80,13 +55,13 @@ class Kgroup:
     operation_g0g1 (str):
         Options are "subtract" or "counters_subtract". By default operations
         perform as (g0 - g1). To instead subtract g0 from g1 use reverse=True.
-    mindepth_g0 (int):
+    mincov_g0 (int):
         kmers with occurrence < this cutoff are excluded from samples in g0
         prior to the union or intersect operation (operation_g0).
-    mindepth_g1 (int):
+    mincov_g1 (int):
         kmers with occurrence < this cutoff are excluded from samples in g1
         prior to the union or intersect operation (operation_g1).
-    mindepth_g0g1 (int):
+    mincov_g0g1 (int):
         kmers with occurrence < this cutoff are excluded from the database
         of kmers remaining after the subtraction operation (operation_g0g1).
     reverse (bool):
