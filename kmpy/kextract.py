@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 """
-Kcounts -> Kgroup -> Kextract
+Kcounts -> Kgroup --[ kmatrix -> Kgwas ]--> Kextract
 
 Extract fastq reads containing target kmers to produce new 
 fastq files with subset of matching read(pair)s. The fastq
 files that this is applied to do not need to have been 
-processed earlier by kcount or any other tool.
+processed earlier by kcount or any other tool. The target kmers
+are identified in kgroup and/or kgwas.
 
 TODO: option to not filter invariant kmers in Kgroup? Since excluding
 these may limit our ability to construct contigs? Not sure about this...
@@ -378,16 +379,25 @@ class Kextract:
 
     def count_kmer_reads(self):
         """
-
+        Test file is not fetched from statsdf... 
+        
         """
         for sname in self.names_to_infiles:
 
-            # count numer of matched kmers
+            # get path to the test fastq file
+            # ...
+
+            # count number of matched kmers
             with open(self.statsdf.at[sname, "new_fastq_path"], 'r') as indat:
                 nmatched = sum(1 for i in indat)
                 self.statsdf.loc[sname, "kmer_matched_reads"] = nmatched
 
-            # count stats and report to logger
+            # get nreads in the kmer-matched file
+            with open(self.prefix + f"_{sname}.fastq", 'r') as indat:
+                nreads = sum(1 for i in indat) / 4
+                self.statsdf.loc[sname, "kmer_matched_reads"] = nreads
+
+            # get nreads in the test fastq file
             if fastq.endswith('.gz'):               
                 with gzip.open(fastq, 'r') as indat:
                     nreads = sum(1 for i in indat) / 4
@@ -395,9 +405,7 @@ class Kextract:
                 with gzip.open(fastq, 'r') as indat:
                     nreads = sum(1 for i in indat) / 4                    
             self.statsdf.loc[sname, "total_reads"] = nreads
-            with open(self.prefix + f"_{sname}.fastq", 'r') as indat:
-                nreads = sum(1 for i in indat) / 4
-                self.statsdf.loc[sname, "kmer_matched_reads"] = nreads
+
 
             # logger report
             logger.debug(f"found {nmatched} matching reads in sample {sname}")
