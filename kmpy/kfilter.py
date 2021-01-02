@@ -1,424 +1,551 @@
 #!/usr/bin/env python
 
-"""
-Kcounts -> Kgroup -> Kextract
-
-Extract fastq reads containing target kmers to produce new 
-fastq files with subset of matching read(pair)s. The fastq
-files that this is applied to do not need to have been 
-processed earlier by kcount or any other tool.
-
-TODO: option to not filter invariant kmers in Kgroup? Since excluding
-these may limit our ability to construct contigs? Not sure about this...
 
 """
+Kcount -> Kgroup
+
+Apply filters to kmer sets to find a target set of kmers.
+
+Loads a phenotypes CSV file and trait column (or imap dictionary in the API)
+to assign samples to groups; then apply kmer_tools operations
+to filter kmers for inclusion in the dataset based on:
+    - mincov: minimum frequency across all samples
+    - minmap: dict of min freq in each group (assigned by phenodf.trait)
+    - mincov_canon: minimum frequency across all samples of a kmer
+        being in present in both directional forms.
+
+Note: coverage in these filters refers to the number or frequency
+of samples in which the kmer is present. It does not refer to the 
+count (depth) of the kmer in one or more samples. To filter kmers
+based on counts you can use the 'mincount' args in kmpy.Kcount().
+
+TODO: minmap versus maxmap, are we doing it right?
+
+"""
+
 
 import os
-import sys
-import glob
-import gzip
+import shutil
 import subprocess
+import numpy as np
 import pandas as pd
 from loguru import logger
-from kmpy.utils import KmpyError
+from kmpy.utils import KmpyError, Group, COMPLEX, 
+from kmpy.kcount import Kcount
+from kmpy.kmctools import KMTBIN, dump, info
 
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
 
 
-class Kextract:
-    """
-    Extract fastq reads containing target kmers and write to new files.
 
-    Files 
+class Kfilter:
+    """
+    Apply filters to find a target set of kmers from a set of samples
+    assigned to groups in a phenos file. Filters apply to coverage
+    (presence) across samples, and to their occurrence in canonized 
+    form. Presence/absence of kmers here depends on the cutoffs 
+    (e.g., mindepth) used in kcount.
 
     Parameters
-    ==========
+    ----------
     name (str):
-        Prefix name for the fastq files that will be written. 
-        Example: <workdir>/k_extract_<name>_<sample_name>.fastq
+        A name prefix for output files.
     workdir (str):
-        Working directory where new filtered fastq files will be written.
-        Examples: '/tmp' or '/tmp/newfastqs'.
-    fastq_path (str):
-        A wildcard selector to match one or more fastq files (can be .gz).
-        Examples: './data/*.fastq.gz'
-    group_kmers (str):
-        The prefix path for a kmc binary database with kmers.
-        Examples: '/tmp/test_group'
-    name_split (str):
-        String on which to split fastq file names to extract sample 
-        names as the first item. Common values are "_" or ".fastq". 
-    mindepth (int):
+        Directory for output files, and where kmer database files are
+        currently located (and the .csv from kcount).
+    phenos (str):
+        Path to a CSV formatted phenotypes file with sample names as
+        index and trait names as columns. Values of 'trait' should be 
+        binary, 0 and 1 are used to assign samples to groups g0 or g1.
+    trait (str):
+        A column name from the phenos file to use for this analysis. 
+        Values should be binary (0/1).    
+    mincov (int, float):
+        Global minimum coverage of a kmer across all samples as an
+        integer or applied as a proportion (float).
+    mincov_canon (int, float):
+        Minimum coverage of a kmer across all samples where it must
+        occur in both directions (--> and comp(<--)), as an integer 
+        or applied as a proportion (float).
+    minmap (dict):
+        Minimum coverage of a kmer across samples in each group (trait
+        category). Keys of the dict should be trait values/categories
+        and values of the dict should be floats representing the 
+        minimum proportion of samples in the group for which the kmer
+        must be present. Examples:
+        minmap = {0: 0.0, 1: 0.9} or minmap={"red": 0.9, "blue": 0.0}.
+    maxmap (dict):
+        Maximum coverage of a kmer across samples in each group (trait
+        category). Keys of the dict should be trait values/categories
+        and values of the dict should be floats representing the 
+        maximum proportion of samples in the group for which the kmer
+        can be present. Examples:
+        maxmap = {0: 0.0, 1: 1.0} or maxmap={"red": 1.0, "blue": 0.0}.
 
 
-    Attributes
-    ===========
-    statsdf (pandas.DataFrame):
-        Statistics on the number of reads per sample. The complete CSV
-        is written to <workdir>/<name>.csv.
-
+    Returns
+    ----------
+    None. Writes kmc binary database to prefix <workdir>/kfilter_{name}
     """
-    def __init__(self, name, workdir, fastq_path, group_kmers, name_split="_", mindepth=1):
+    def __init__(
+        self, 
+        name, 
+        workdir, 
+        phenos,
+        trait, 
+        mincov=0.0,
+        mincov_canon=0.25,
+        minmap=None,
+        maxmap=None,
+        ):
 
-        # store parameters
+        # store file parameters
         self.name = name
-        self.group_kmers = group_kmers
-        self.fastq_path = os.path.realpath(os.path.expanduser(fastq_path))
-        self.name_split = name_split
         self.workdir = os.path.realpath(os.path.expanduser(workdir))
-        self.mindepth = mindepth
+        self.kcpath = os.path.join(self.workdir, f"kcount_{name}.csv")
+        self.phenos = os.path.realpath(os.path.expanduser(phenos))
+        self.trait = trait
+
+        # store filter params
+        self.mincov = mincov
+        self.mincov_canon = mincov_canon
+        self.minmap = (minmap if minmap is not None else {})
+        self.maxmap = (maxmap if maxmap is not None else {})
         
-        # output prefix
-        os.makedirs(self.workdir, exist_ok=True)
-        self.prefix = os.path.join(self.workdir, f"kextract_{self.name}")
+        # output prefix for .complex, subtract, countsubtract, intersect
+        self.prefix = os.path.join(self.workdir, f"kfilter_{self.name}")
 
-        # get the kmctools binary for kmer set comparisons
-        self.kmctools_binary = os.path.join(sys.prefix, "bin", "kmc_tools")
-        logger.debug("using KMC binary: {}".format(self.kmctools_binary))
+        # attributes to be filled. Samples is only those in kcounts & phenos.
+        self.samples = []
+        self.phenodf = None
+        self.kcountdf = None
 
-        # attributes to be filled
-        self.files = []
-        self.sample_names = []
-        self.names_to_infiles = {}
+        # fills .kcountdf, .phenodf and .samples
+        self.load_dataframes()
 
-        # check files
-        self.check_database()
-        self.expand_filenames()
-        self.check_samples()
-
-        # dataframe for results
-        self.statsdf = pd.DataFrame(
-            index=self.sample_names,
-            columns=[
-                "total_reads",
-                "kmer_matched_reads", 
-                "new_fastq_path", 
-                "orig_fastq_path",
-            ],
-            dtype=int,
-            data=0,
-        )
+        # checks minmap against .phenodf.trait and .samples
+        # and converts mincov and minmap to ints
+        self.check_filters()
 
 
 
-    def check_database(self):
+    def load_dataframes(self):
         """
-        Check that a kmers database exists for this group name.
+        load kcount and phenotype dataframes to get sample names, 
+        group info, and stats. Check all names for matching.
         """
-        assert os.path.exists(self.group_kmers + ".kmc_suf"), (
-            f"group_kmers database {self.group_kmers} not found"
-        )
-        assert os.path.exists(self.group_kmers + ".kmc_pre"), (
-            f"group_kmers database {self.group_kmers} not found"
-        )
+        self.kcountdf = pd.read_csv(self.kcpath, index_col=0)
+        self.phenodf = pd.read_csv(self.phenos, index_col=0)
+
+        # check that 'trait' is in pheno.
+        assert self.trait in self.phenodf.columns, (
+            f"trait {self.trait} not in phenos")
+
+        # check that names in kcountdf match those in phenodf
+        setp = set(self.phenodf.index)
+        sets = set(self.kcountdf.index)
+
+        # raise an error if no names overlap
+        if setp.isdisjoint(sets):
+            dbnames = ", ".join(self.kcountdf.index[:4].tolist())
+            phnames = ", ".join(self.phenodf.index[:4].tolist())
+            msg = (
+                "Sample names in pheno do not match names in database:\n"
+                f"  DATABASE: {dbnames}...\n"
+                f"  PHENOS:   {phnames}...\n"               
+            )
+            logger.error(msg)
+            raise KmpyError(msg)
+
+        # warning for samples only in pheno that are not in database
+        onlypheno = setp.difference(sets)
+        if onlypheno:
+            logger.warning(
+                f"Skipping samples in pheno but not in database: {onlypheno}")
+
+        # store overlapping samples as the test samples
+        self.samples = sorted(setp.intersection(sets))
+
+        # keep only rows in pheno that are in sa
+        self.phenodf = self.phenodf.loc[self.samples]
 
 
 
-    def expand_filenames(self):
+    def check_filters(self):
         """
-        Allows for selecting multiple input files using wildcard
-        operators like "./fastqs/*.fastq.gz" to select all fastq.gz
-        files in the folder fastqs.
+        Check that minmap keys are the same as values in .phenodf.trait, 
+        and convert values to ints from floats (proportions).
         """
-        if isinstance(self.fastq_path, (str, bytes)):
-            self.files = glob.glob(self.fastq_path)
+        if self.maxmap:
+            # TODO
+            pass
 
-            # raise an exception if no files were found
-            if not any(self.files):
-                msg = f"no fastq files found at: {self.files}"
-                logger.error(msg)
-                raise KmpyError(msg)
+        if self.minmap:
+            for key in self.minmap:
 
-            # sort the input files
-            self.files = sorted(self.files)
+                # check that there are ANY samples with this trait
+                mask = self.phenodf[self.trait] == key
+                nsamps = self.phenodf.loc[mask].shape[0]
 
-        # report on found files
-        logger.debug(f"found {len(self.files)} input files")
+                # check that minmap key is in 'trait' values
+                assert nsamps, (
+                    "Keys in minmap should match trait values in phenos. "
+                    "No samples present in both kcount database and the "
+                    f"phenos database have {self.trait} == {key}:\n"
+                    f"{self.phenodf[self.trait]}"
+                )
+
+                # set minmap float to an int
+                if isinstance(self.minmap[key], float):
+                    asint = int(np.floor(self.minmap[key] * nsamps))
+                    self.minmap[key] = asint
+            logger.debug(f"int encoded minmap: {self.minmap}")
+
+        # int encode mincov
+        if isinstance(self.mincov, float):
+            self.mincov = int(np.floor(self.mincov * len(self.samples)))
+        logger.debug(f"int encoded mincov: {self.mincov}")
 
 
 
-    def check_samples(self):
+    def call_complex(self, dbdict, mindepth, oper, outname):
         """
-        Gets sample names from the input files and checks that all 
-        have the same style of suffix (e.g., .fastq.gz).
+        Builds the 'complex' input string (see COMPLEX global)
+        to call complex operations using kmer_tools. Samples are 
+        selected from dbdict, a dict of {idx: dbprefix-path, ...}. 
+        See kgroup for complex operations using substract, etc.
+
+        NB: KMC complex cannot handle dashes in linked names, 
+        or keywords like min,max,diff,etc. Much safer to just use ints.
         """
-        # split file names to keep what comes before 'name_split'
-        sample_names = [
-            os.path.basename(i.split(self.name_split)[0]) for i in self.files
-        ]
+        # INPUT: get sample names and filters
+        input_list = []
+        for sname, database in dbdict.items():
 
-        # check that all sample_names are unique
-        if len(set(sample_names)) != len(sample_names):
-            
-            # if not, then check each occurs 2X (PE reads)
-            if not all([sample_names.count(i) == 2 for i in sample_names]):
-                raise KmpyError(
-                    "Sample names are not unique, or in sets of 2 (PE). "
-                    "You may need to try a different name_split setting."
-                )                
-            logger.debug("detected PE data")
+            # build input string
+            cmdstr = f"{sname} = {database} -ci1 -cx1000000000"
+            input_list.append(cmdstr)
+        input_str = "\n".join(input_list)
 
-        # store dict mapping names and files (or file pairs for PE)
-        for sname, file in zip(sample_names, self.files):
+        # OUTPUT: (a + b + c)
+        outname = self.prefix + "_" + outname
+        group = Group([str(i) for i in dbdict.keys()])
+        output_str = f"{outname} = {group.get_string(oper)}"
 
-            # names to input fastqs
-            if sname in self.names_to_infiles:
-                self.names_to_infiles[sname].append(file)
-            else:
-                self.names_to_infiles[sname] = [file]
- 
+        # OUTPUT_PARAMS: -ci0
+        oparams_str = f"-ci{mindepth}" 
 
+        # Build complex string and print to logger
+        complex_string = COMPLEX.format(**{
+            'input_string': input_str,
+            'output_string': output_str,
+            'output_params': oparams_str,
+        })
+        logger.debug(complex_string)
 
-    def get_reads_with_kmers(self, fastq, sname, readnum):
-        """
-        Generate a directory full of fastq files for each sample
-        where reads are only kept if they contain kmers from the
-        specified kmer database.
+        # write to a tmp file
+        complex_file = self.prefix + "_complex.txt"
+        with open(complex_file, 'w') as out:
+            out.write(complex_string)
 
-        CMD: kmc_tools filter database input.fastq -ci10 -cx100 out.fastq
-        """
-        # Here broken into [kmc_tools filter database <options>]
-        cmd = [self.kmctools_binary, "filter", self.group_kmers]
+        # cmd: 'kmer_tools [global_params] complex <operations file>'
+        cmd = [KMTBIN, "complex", complex_file]
 
-        # insert options to filter on kmers:
-        # -ci<val> : exclude kmers occurring < val times.
-        # -cx<val> : exclude kmers occurring > val times.
-        cmd.extend([f'-ci{self.mindepth}'])
-
-        # add the input.fastq
-        cmd.extend([fastq])
-
-        # insert options to filter on reads:
-        # -ci<val> : exclude reads containing < val kmers.
-        # -cx<val> : exclude reads containing > val kmers
-        cmd.extend(['-ci1'])
-
-        # add the output fastq path
-        cmd.extend([self.prefix + f"_{sname}_R{readnum}.fastq"])
-
-        # log and call the kmc_tool command
-        logger.debug(" ".join(cmd))
-        subprocess.run(
+        # call subprocess on the command
+        out = subprocess.run(
             cmd, 
             stderr=subprocess.STDOUT, 
             stdout=subprocess.PIPE,
             check=True,
             cwd=self.workdir,
         )
+        logger.info(f"new database: {os.path.basename(outname)}")
+        os.remove(complex_file)
+
+
+
+    def filter_canon(self):
+        """
+        Filter kmers that tend to only occur in one form or the
+        other, likely due to adapters. 
+
+        Returns:
+        None. 
+        Writes kmc database prefix=<workdir>/kfilter_{name}_canon-filtered
+        """
+
+        # database file for storing counts of kmers being present in both forms
+        bothdb = self.prefix + "_canonsums"
+
+        # iterate over samples
+        for sidx, sname in enumerate(self.samples):
+
+            # get fastq dict w/ fastqs used in kcounts
+            fastq_dict = {sname: self.kcountdf.at[sname, "fastqs"].split(",")}
+
+            # get options used in kcounts, but not mindepth (must be 1)
+            kcount_params = {
+                'workdir': self.workdir,
+                'name': 'tmp-canon',
+                'fastq_dict': fastq_dict,
+                'kmersize': self.kcountdf.at[sname, "kmersize"],
+                'subsample_reads': self.kcountdf.at[sname, "subsample_reads"],
+                'trim_reads': self.kcountdf.at[sname, "trimmed"],
+                'mindepth': 1, 
+                'maxdepth': self.kcountdf.at[sname, "maxdepth"],
+                'maxcount': self.kcountdf.at[sname, "maxcount"],
+                'canonical': 0,
+            }
+
+            # count non-canon kmers in sample with same kcount args except -ci1
+            logger.info(f"counting non-canonical kmers [{sname}]")
+            kco = Kcount(**kcount_params)
+            kco.run()
+            nonc_db = os.path.join(self.workdir, f"kcount_tmp-canon_{sname}")
+
+            # subtract counts of non-canon from canon, only keep if -ci1, 
+            # these are the kmers observed occurring both ways in this sample.
+            canon_db = self.kcountdf.at[sname, "database"]
+            cmd = [
+                KMTBIN,
+                "-hp",                
+                "simple",
+                canon_db, 
+                nonc_db, 
+                "counters_subtract",
+                self.prefix + "_tmp1",  # tmp1=kmers occurring both ways
+                "-ci1"
+            ]
+            logger.debug(" ".join(cmd))            
+            subprocess.run(cmd, check=True)
+
+            # set count =1 on a tmp copy of bothways kmers db
+            cmd = [
+                KMTBIN,
+                "-hp",                
+                "transform",
+                self.prefix + "_tmp1",
+                "set_counts", 
+                "1",
+                self.prefix + "_tmp2",  # tmp2=kmers w/ count=1
+            ]
+            logger.debug(" ".join(cmd))
+            subprocess.run(cmd, check=True)
+
+            # if the first sample then simply copy tmp2 to BOTHDB
+            if not sidx:
+                for suff in [".kmc_suf", ".kmc_pre"]:                
+                    shutil.copyfile(
+                        self.prefix + "_tmp2" + suff,
+                        bothdb + suff,
+                    )
+
+            # if not, then make copy of BOTHDB, and fill BOTHDB using kmctools
+            else:
+                for suff in [".kmc_suf", ".kmc_pre"]:                                
+                    shutil.copyfile(
+                        bothdb + suff,
+                        self.prefix + "_tmp3" + suff,
+                    )
+
+                # fill bothdb as the sum union of tmp2 and tmp3
+                cmd = [
+                    KMTBIN,
+                    "-hp",
+                    "simple",
+                    self.prefix + "_tmp2",   # kmers w/ count=1 from this samp
+                    self.prefix + "_tmp3",   # kmers w/ count=sum so far
+                    "union",
+                    bothdb,
+                    "-ci1",
+                    "-cs{}".format(len(self.samples) + 1),
+                ]
+                logger.debug(" ".join(cmd))
+                subprocess.run(cmd, check=True)              
+                
+            # cleanup
+            logger.debug(f"removing database tmp-canon_{sname}")
+
+        # dump and calculate statistics on full canonized set
+        sumkmers = dump(
+            self.prefix + "_canonsums", 
+            count_kmers=True, 
+            write_counts=True, 
+            write_kmers=False,
+        )
+        with open(self.prefix + "_canonsums_kmers.txt", 'r') as indat:
+            counts = np.loadtxt(indat, dtype=np.uint16)
+            counts = counts / len(self.samples)
+            mcanon = counts.mean()
+            scanon = counts.std()
+            del counts
+
+        # report statistics on canonization
+        logger.info(
+            "kmers (proportion) in canonized form: "
+            f"mean={mcanon:.2f}; std={scanon:.2f}"
+        )
+
+        # report a warning if too few are canonized:
+        if mcanon < 0.1:
+            logger.warning(
+                "Very few kmers are canonized in this dataset. This may "
+                "indicate your data is strand-specific (e.g., ddRAD) in "
+                "which case you should set mincov_canon=0.0. Alternatively, "
+                "if WGS reads, then your data may be very low coverage."
+            )            
+
+        # filter BOTHDB to get kmers in mincanon prop. of samples (CANON)
+        mincanon_asint = int(np.floor(self.mincov_canon * len(self.samples)))
+        cmd = [
+            KMTBIN, 
+            "transform",
+            bothdb,
+            "reduce",
+            self.prefix + "_mincanon-filter", 
+            "-ci{}".format(mincanon_asint),
+            "-cx1000000000",
+            # "-cs255",        # 65K
+        ]
+        logger.debug(" ".join(cmd))
+        subprocess.run(cmd, check=True)              
+
+        # calculate and report statistics on filtered canonized set.
+        # dump counting could be done faster with pure kmc: filter + info
+        sumfiltkmers = dump(
+            self.prefix + "_mincanon-filter",
+            count_kmers=True, 
+            write_counts=False, 
+            write_kmers=False,
+        )
+        logger.info(f"kmers filtered by mincov_canon: {sumkmers - sumfiltkmers}")
+
+        # clean up tmp files
+        countpre = os.path.join(self.workdir, "kcount")
+        os.remove(countpre + "_tmp-canon.csv")
+        for sname in self.samples:
+            os.remove(countpre + "_tmp-canon_" + sname + ".kmc_pre")
+            os.remove(countpre + "_tmp-canon_" + sname + ".kmc_suf")            
+        os.remove(self.prefix + "_canonsums_kmers.txt")
+        for suffix in ["tmp1", "tmp2", "tmp3", "canonsums"]:
+            os.remove(self.prefix + "_" + suffix + ".kmc_pre")
+            os.remove(self.prefix + "_" + suffix + ".kmc_suf")            
+
 
 
     def run(self):
         """
-        Iterate over all fastq files to call filter funcs.
+        Create a 'complex' input file to run `kmc_tools complex ...`
         """
-        for sname in self.names_to_infiles:        
+        # MINCANON FILTER ---------------------------------------------
+        # get kmers passing the mincov_canon filter (canon-filtered)
+        self.filter_canon()
 
-            # get fastq filename
-            fastqs = self.names_to_infiles[sname]
+        # PREP for MINCOV and MINMAP ----------------------------------
+        # create count=1 databases for each sample
+        # TODO: we could support a lowdisk option that overwrites the
+        # original rather than copy, as long as original is not needed.
+        for sname in self.samples:
+            cmd = [
+                KMTBIN,
+                "-hp",                
+                "transform",
+                self.kcountdf.at[sname, "database"],
+                "set_counts", 
+                "1",
+                self.prefix + f"_count1_{sname}",
+            ]
+            logger.debug(" ".join(cmd))
+            subprocess.run(cmd, check=True)
 
-            # accommodates paired reads:
-            for readnum, fastq in enumerate(fastqs):
+        # MINCOV FILTER ----------------------------------------------
+        # get count=1 kmers for ALL samples in self.samples
+        dbdict = {
+            idx: self.prefix + f"_count1_{sname}" 
+            for idx, sname in enumerate(self.samples)
+        }
 
-                # call kmc_tools filter, writes new fastq to prefix
-                self.get_reads_with_kmers(fastq, sname, readnum + 1)
+        # get kmers passing the mincov filter (mincov-filtered)
+        self.call_complex(
+            dbdict=dbdict,
+            oper="union",
+            mindepth=self.mincov,
+            outname='mincov-filter',
+        )
 
-            # store file paths
-            self.statsdf.loc[sname, "orig_fastq_path"] = ",".join([
-                i for i in fastqs if i])
-            self.statsdf.loc[sname, "new_fastq_path"] = ",".join([
-                self.prefix + f"_{sname}_R{readnum + 1}.fastq"
-                for readnum, fastq in enumerate(fastqs)
-            ])
+        # MINMAP FILTER ----------------------------------------------
+        # get kmers passing the minmap filters
+        for group in self.minmap:
 
-        # get read pairs where either contains the kmer
-        self.get_paired_reads()
+            # get dict of {sname: count-1-db} for group samples
+            mask = self.phenodf[self.trait] == group
+            dbdict = {
+                idx: self.prefix + f"_count1_{sname}"
+                for idx, sname in enumerate(self.phenodf[mask].index)
+            }
 
-        # get final stats
-        #self.count_kmer_reads()
-
-
-    def get_paired_reads(self):
-        """
-        Get read pairs for all reads in which EITHER has a kmer match.
-        Current approach may be memory crushing...
-        """
-        for sname in self.statsdf.index:
-            logger.debug(f"pair fix {sname}")
-            # get fastq file paths of original data
-            orig_fastqs = self.statsdf.at[sname, 'orig_fastq_path']
-            old1, old2 = orig_fastqs.split(",")
-
-            # get fastq file paths of new filtered data
-            new_fastqs = self.statsdf.at[sname, 'new_fastq_path']
-            new1, new2 = new_fastqs.split(",")
-
-            # -----------------------------------------------------
-            # create set of all read names in new kmer-matched file
-            set1 = set()
-            readio = open(new1, 'r')
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    set1.add(header)
-                except StopIteration:
-                    break
-            readio.close()
-
-            # find lines with same read names in orig fastq file
-            lines1 = set()
-            readio = (
-                gzip.open(old1, 'rt') if old1.endswith('.gz') 
-                else open(old1, 'r')
+            # get kmers occurring >= minmap[group] in this group
+            self.call_complex(
+                dbdict=dbdict, 
+                oper="union",
+                mindepth=self.minmap[group],
+                outname=f'minmap-{group}-filter'
             )
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            idx = 0
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    if header in set1:
-                        lines1.add(idx)
-                    idx += 1
-                except StopIteration:
-                    break
-            readio.close()
-            del set1
 
-            # ---------------------------------------------------
-            # create set of all read names in read2s
-            set2 = set()
-            readio = open(new2, 'r')
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    set2.add(header)
-                except StopIteration:
-                    break
-            readio.close()
+        # INTERSECTION OF FILTERED KMERS -----------------------------
+        # get intersection of kmers passing all filters (kmers-filtered)
+        dbdict = {
+            0 : self.prefix + "_mincanon-filter",
+            1 : self.prefix + "_mincov-filter"
+        }
+        idx = 2
+        for group in self.minmap:
+            dbdict[idx] = f"{self.prefix}_minmap-{group}-filter"
+            idx += 1
+        logger.debug(dbdict)
+        self.call_complex(
+            dbdict=dbdict,
+            oper="intersection",
+            mindepth=1,
+            outname="filtered",
+        )
 
-            # find lines containing read names in matched file
-            lines2 = set()
-            readio = (
-                gzip.open(old2, 'rt') if old2.endswith('.gz') 
-                else open(old2, 'r')
-            )
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            idx = 0
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    if header in set2:
-                        lines2.add(idx)
-                    idx += 1
-                except StopIteration:
-                    break
-            readio.close()
-            del set2
-
-            # -------------------------------------------------------
-            # get union of lines1 and line2
-            lidxs = lines1.union(lines2)
-            del lines1
-            del lines2
-
-            # skip the rest if no lidxs exist
-            if not lidxs:
-                continue
-
-            # overwrite new read files with reads from original files
-            # at all line indices in lidxs.
-            for new, old in [(new1, old1), (new2, old2)]:
-
-                # open writer 
-                with open(new, 'w') as out:
-
-                    # load the originals
-                    readio = (
-                        gzip.open(old, 'rt') if old.endswith('.gz') 
-                        else open(old, 'r')
-                    )
-                    # read in 4 lines at a time
-                    matched = iter(readio)
-                    quart = zip(matched, matched, matched, matched)
-
-                    # save each 4-line chunk to chunks if it lidxs
-                    chunk = []
-                    idx = 0
-
-                    # iterate until end of file
-                    while 1:
-                        try:
-                            test = next(quart)
-                            if idx in lidxs:
-                                chunk.extend(test)
-                        except StopIteration:
-                            break
-                        idx += 1
-
-                        # occasionally write to disk and clear
-                        if len(chunk) == 2000:
-                            out.write("".join(chunk))
-                            chunk = []
-
-                    if chunk:
-                        out.write("".join(chunk))
-                    readio.close()
-
-
-
-
-
-
-    def count_kmer_reads(self):
-        """
-
-        """
-        for sname in self.names_to_infiles:
-
-            # count numer of matched kmers
-            with open(self.statsdf.at[sname, "new_fastq_path"], 'r') as indat:
-                nmatched = sum(1 for i in indat)
-                self.statsdf.loc[sname, "kmer_matched_reads"] = nmatched
-
-            # count stats and report to logger
-            if fastq.endswith('.gz'):               
-                with gzip.open(fastq, 'r') as indat:
-                    nreads = sum(1 for i in indat) / 4
-            else:
-                with gzip.open(fastq, 'r') as indat:
-                    nreads = sum(1 for i in indat) / 4                    
-            self.statsdf.loc[sname, "total_reads"] = nreads
-            with open(self.prefix + f"_{sname}.fastq", 'r') as indat:
-                nreads = sum(1 for i in indat) / 4
-                self.statsdf.loc[sname, "kmer_matched_reads"] = nreads
-
-            # logger report
-            logger.debug(f"found {nmatched} matching reads in sample {sname}")
+        # cleanup tmp files
+        os.remove(self.prefix + "_mincov-filter" + ".kmc_pre")
+        os.remove(self.prefix + "_mincov-filter" + ".kmc_suf")
+        os.remove(self.prefix + "_mincanon-filter" + ".kmc_pre")
+        os.remove(self.prefix + "_mincanon-filter" + ".kmc_suf")
+        for sname in self.samples:
+            os.remove(self.prefix + f"_count1_{sname}" + ".kmc_pre")
+            os.remove(self.prefix + f"_count1_{sname}" + ".kmc_suf")
+        for group in self.minmap:
+            os.remove(self.prefix + f"_minmap-{group}-filter" + ".kmc_pre")
+            os.remove(self.prefix + f"_minmap-{group}-filter" + ".kmc_suf")
 
 
 
 if __name__ == "__main__":
 
-    # first run: python3 kcount.py; python3 kgroup.py
-    # DATA
-    # FASTQS = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
-    FASTQS = "~/Documents/kmpy/data/hybridus_*.fastq.gz"
+    # first run: python3 kcount.py 
 
-    # set up filter tool
-    kfilt = Kextract(
-        name="test",
+    # fake data
+    PHENOS = "~/Documents/kmpy/data/amaranths-phenos.csv"
+
+    # load database with phenotypes data
+    kgp = Kfilter(
+        name="hyb",
         workdir="/tmp",
-        fastq_path=FASTQS,
-        group_kmers="/tmp/kgroup_test",
-        name_split="_R",
-        mindepth=10,
+        phenos=PHENOS,
+        trait="fake",
+        mincov=0.25,
+        mincov_canon=0.5,
+        minmap={
+            0: 0.0,
+            1: 1.0,
+        }
     )
-    kfilt.run()
-    print(kfilt.statsdf.T)
+
+    # dump the kmers to a file
+    kgp.run()
