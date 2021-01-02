@@ -13,6 +13,8 @@ Notes:
       this will fail if both forms occur at maxcount (e.g., 255), safer
       to just enforce larger maxcount (65535) by default, and eat the 
       larger disk usage. Test on a superlarge dset before deciding...
+    - maxcount could also matter for count=1 with regard to nsamples in 
+      kfilter, another reason to just set it higher...
 
 TODO:
     - t x = option to limit threads
