@@ -30,10 +30,9 @@ import subprocess
 import numpy as np
 import pandas as pd
 from loguru import logger
-from kmpy.utils import KmpyError, Group, COMPLEX, 
 from kmpy.kcount import Kcount
 from kmpy.kmctools import KMTBIN, dump, info
-
+from kmpy.utils import Group, COMPLEX, KmpyError
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
@@ -113,6 +112,7 @@ class Kfilter:
         self.mincov_canon = mincov_canon
         self.minmap = (minmap if minmap is not None else {})
         self.maxmap = (maxmap if maxmap is not None else {})
+        self._minmax_empty = self.minmap == self.maxmap == {}
         
         # output prefix for .complex, subtract, countsubtract, intersect
         self.prefix = os.path.join(self.workdir, f"kfilter_{self.name}")
@@ -177,7 +177,42 @@ class Kfilter:
         """
         Check that minmap keys are the same as values in .phenodf.trait, 
         and convert values to ints from floats (proportions).
+
+        Default minmap is 0, and maxmap is 1.0.
         """
+        # int encode mincov
+        if isinstance(self.mincov, float):
+            self.mincov = int(np.floor(self.mincov * len(self.samples)))
+
+        # get the values of 'trait' in phenos
+        values = set(self.phenodf[self.trait])
+
+        # iterate over value categories assigning min and max
+        for val in values:
+
+            # set value if user did not provide one
+            if val not in self.minmap:
+                self.minmap[val] = 0.0
+            if val not in self.maxmap:
+                self.maxmap[val] = 1.0
+
+            # check if there are ANY samples with this trait
+            mask = self.phenodf[self.trait] == val
+            nsamps = self.phenodf.loc[mask].shape[0]
+
+            # int encode minmax
+            if isinstance(self.minmap[val], float):
+                asint = int(np.floor(self.minmap[val] * nsamps))
+                self.minmap[val] = asint
+                asint = int(np.floor(self.maxmap[val] * nsamps))                
+                self.maxmap[val] = asint
+
+        logger.debug(f"int encoded minmap: {self.minmap}")
+        logger.debug(f"int encoded maxmap: {self.maxmap}")
+
+
+
+    def deprecated(self):
         if self.maxmap:
             # TODO
             pass
@@ -210,7 +245,7 @@ class Kfilter:
 
 
 
-    def call_complex(self, dbdict, mindepth, oper, outname):
+    def call_complex(self, dbdict, mindepth, maxdepth, oper, outname):
         """
         Builds the 'complex' input string (see COMPLEX global)
         to call complex operations using kmer_tools. Samples are 
@@ -235,7 +270,7 @@ class Kfilter:
         output_str = f"{outname} = {group.get_string(oper)}"
 
         # OUTPUT_PARAMS: -ci0
-        oparams_str = f"-ci{mindepth}" 
+        oparams_str = f"-ci{mindepth} -cx{maxdepth}" 
 
         # Build complex string and print to logger
         complex_string = COMPLEX.format(**{
@@ -368,13 +403,11 @@ class Kfilter:
             # cleanup
             logger.debug(f"removing database tmp-canon_{sname}")
 
-        # dump and calculate statistics on full canonized set
-        sumkmers = dump(
-            self.prefix + "_canonsums", 
-            count_kmers=True, 
-            write_counts=True, 
-            write_kmers=False,
-        )
+        # get stats on full canonized set
+        sumkmers = info(self.prefix + "_canonsums")
+
+        # dump and calculate stats on canonsums counts
+        dump(self.prefix + "_canonsums", write_kmers=False)
         with open(self.prefix + "_canonsums_kmers.txt", 'r') as indat:
             counts = np.loadtxt(indat, dtype=np.uint16)
             counts = counts / len(self.samples)
@@ -413,13 +446,7 @@ class Kfilter:
         subprocess.run(cmd, check=True)              
 
         # calculate and report statistics on filtered canonized set.
-        # dump counting could be done faster with pure kmc: filter + info
-        sumfiltkmers = dump(
-            self.prefix + "_mincanon-filter",
-            count_kmers=True, 
-            write_counts=False, 
-            write_kmers=False,
-        )
+        sumfiltkmers = info(self.prefix + "_mincanon-filter")
         logger.info(f"kmers filtered by mincov_canon: {sumkmers - sumfiltkmers}")
 
         # clean up tmp files
@@ -443,7 +470,7 @@ class Kfilter:
         # get kmers passing the mincov_canon filter (canon-filtered)
         self.filter_canon()
 
-        # PREP for MINCOV and MINMAP ----------------------------------
+        # PREP for MINCOV and MAPS ------------------------------------
         # create count=1 databases for each sample
         # TODO: we could support a lowdisk option that overwrites the
         # original rather than copy, as long as original is not needed.
@@ -472,11 +499,12 @@ class Kfilter:
             dbdict=dbdict,
             oper="union",
             mindepth=self.mincov,
+            maxdepth=1000000000,
             outname='mincov-filter',
         )
 
-        # MINMAP FILTER ----------------------------------------------
-        # get kmers passing the minmap filters
+        # MAP FILTERS -------------------------------------------------
+        # get kmers passing the map filters (same keys in both)
         for group in self.minmap:
 
             # get dict of {sname: count-1-db} for group samples
@@ -491,7 +519,8 @@ class Kfilter:
                 dbdict=dbdict, 
                 oper="union",
                 mindepth=self.minmap[group],
-                outname=f'minmap-{group}-filter'
+                maxdepth=self.maxmap[group],
+                outname=f'map-{group}-filter'
             )
 
         # INTERSECTION OF FILTERED KMERS -----------------------------
@@ -502,13 +531,14 @@ class Kfilter:
         }
         idx = 2
         for group in self.minmap:
-            dbdict[idx] = f"{self.prefix}_minmap-{group}-filter"
+            dbdict[idx] = f"{self.prefix}_map-{group}-filter"
             idx += 1
         logger.debug(dbdict)
         self.call_complex(
             dbdict=dbdict,
             oper="intersection",
             mindepth=1,
+            maxdepth=1000000000,
             outname="filtered",
         )
 
@@ -521,8 +551,8 @@ class Kfilter:
             os.remove(self.prefix + f"_count1_{sname}" + ".kmc_pre")
             os.remove(self.prefix + f"_count1_{sname}" + ".kmc_suf")
         for group in self.minmap:
-            os.remove(self.prefix + f"_minmap-{group}-filter" + ".kmc_pre")
-            os.remove(self.prefix + f"_minmap-{group}-filter" + ".kmc_suf")
+            os.remove(self.prefix + f"_map-{group}-filter" + ".kmc_pre")
+            os.remove(self.prefix + f"_map-{group}-filter" + ".kmc_suf")
 
 
 
@@ -542,6 +572,10 @@ if __name__ == "__main__":
         mincov=0.25,
         mincov_canon=0.5,
         minmap={
+            0: 0.0,
+            1: 0.5,
+        },
+        maxmap={
             0: 0.0,
             1: 1.0,
         }
