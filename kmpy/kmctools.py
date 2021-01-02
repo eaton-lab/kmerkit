@@ -17,12 +17,12 @@ assert os.path.exists(KMCBIN)
 
 
 
-def info(database, mindepth=1):
+def info(database, mindepth=0):
     """
     Returns the number of kmers in the database. Option mindepth
     will call 'transform reduce -ci{} beforehand to filter.'
     """
-    if mindepth:
+    if mindepth > 1:
         cmd = [
             KMTBIN,
             "transform",
@@ -57,7 +57,7 @@ def info(database, mindepth=1):
             nkmers = int(line.split()[-1])
 
     # cleanup
-    if mindepth:
+    if mindepth > 1:
         os.remove(database)
     return nkmers
 
