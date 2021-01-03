@@ -2,7 +2,7 @@
 
 
 """
-Kcount -> Kgroup
+Kcount -> Kfilter
 
 Apply filters to kmer sets to find a target set of kmers.
 
@@ -14,13 +14,19 @@ to filter kmers for inclusion in the dataset based on:
     - mincov_canon: minimum frequency across all samples of a kmer
         being in present in both directional forms.
 
+TODO:
+    - canon shouldn't apply to all samples, It should apply
+      to only those samples for which the kmer is present...
+
+    - b/c canon is a bit time and disk consuming, we could apply it
+      after the other filters, so we only have to focus on a reduced
+      set of kmers. Would this be useful? ... Still need to start by 
+      counting all non-con kmers in each sample...
+
 Note: coverage in these filters refers to the number or frequency
 of samples in which the kmer is present. It does not refer to the 
 count (depth) of the kmer in one or more samples. To filter kmers
 based on counts you can use the 'mincount' args in kmpy.Kcount().
-
-TODO: minmap versus maxmap, are we doing it right?
-
 """
 
 
@@ -34,9 +40,9 @@ from kmpy.kcount import Kcount
 from kmpy.kmctools import KMTBIN, dump, info
 from kmpy.utils import Group, COMPLEX, KmpyError
 
+
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
-
 
 
 class Kfilter:
@@ -200,6 +206,14 @@ class Kfilter:
             mask = self.phenodf[self.trait] == val
             nsamps = self.phenodf.loc[mask].shape[0]
 
+            # check that minmap key is in 'trait' values
+            assert nsamps, (
+                "Keys in minmap and maxmap should match 'trait' values. "
+                "No samples present in both kcount database and the "
+                f"phenos database have {self.trait} == {val}:\n"
+                f"{self.phenodf[self.trait]}"
+            )
+
             # int encode minmax
             if isinstance(self.minmap[val], float):
                 asint = int(np.floor(self.minmap[val] * nsamps))
@@ -209,39 +223,6 @@ class Kfilter:
 
         logger.debug(f"int encoded minmap: {self.minmap}")
         logger.debug(f"int encoded maxmap: {self.maxmap}")
-
-
-
-    def deprecated(self):
-        if self.maxmap:
-            # TODO
-            pass
-
-        if self.minmap:
-            for key in self.minmap:
-
-                # check that there are ANY samples with this trait
-                mask = self.phenodf[self.trait] == key
-                nsamps = self.phenodf.loc[mask].shape[0]
-
-                # check that minmap key is in 'trait' values
-                assert nsamps, (
-                    "Keys in minmap should match trait values in phenos. "
-                    "No samples present in both kcount database and the "
-                    f"phenos database have {self.trait} == {key}:\n"
-                    f"{self.phenodf[self.trait]}"
-                )
-
-                # set minmap float to an int
-                if isinstance(self.minmap[key], float):
-                    asint = int(np.floor(self.minmap[key] * nsamps))
-                    self.minmap[key] = asint
-            logger.debug(f"int encoded minmap: {self.minmap}")
-
-        # int encode mincov
-        if isinstance(self.mincov, float):
-            self.mincov = int(np.floor(self.mincov * len(self.samples)))
-        logger.debug(f"int encoded mincov: {self.mincov}")
 
 
 
@@ -542,6 +523,9 @@ class Kfilter:
             outname="filtered",
         )
 
+        # TODO: log a summary of the filtered kmers
+        # ...
+
         # cleanup tmp files
         os.remove(self.prefix + "_mincov-filter" + ".kmc_pre")
         os.remove(self.prefix + "_mincov-filter" + ".kmc_suf")
@@ -570,7 +554,8 @@ if __name__ == "__main__":
         phenos=PHENOS,
         trait="fake",
         mincov=0.25,
-        mincov_canon=0.5,
+        mincov_canon=0.25,
+        #mapcov={0: (0.0, 0.0), 1: (0.5, 1.0)},
         minmap={
             0: 0.0,
             1: 0.5,
