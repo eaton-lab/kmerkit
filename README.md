@@ -1,30 +1,49 @@
 
-# kmer assocation analysis in Python
+## Kmerkit: kmer assocation toolkit in Python
 
-Alternative name ideas:  
-kmpy  
-kampy  
-kmerkit  
-ipykmer  
-import kmerkit as kit  
+#### Under active development!
+
+Kmerkit is a general toolkit for performing reference-free 
+genome-wide association analyses from kmers. 
+It uses [KMC](https://github.com/refresh-bio/KMC/)
+to count and filter kmers, and has options to perform associations
+using either [gemma]() or by machine learning methods in [scikit-learn]().
+Code and tutorials are currently under development.
 
 
-### Code in testing
+#### Installation with conda (coming soon)
+```bash
+# conda install kmerkit -c conda-forge -c bioconda
+
+# for now, do dev installation with pip
+git clone https://github.com/eaton-lab/kmerkit
+cd kmerkit
+pip install -e .
+```
+
+
+#### Interactive analysis in jupyter
+The preferred way to run analyses in kmerkit is to use the API 
+interactively in a jupyter notebook. This allows access to statistics,
+plotting summaries, and encourages users to create reproducible documentation
+of their workflow.
+
+
 ```python
-import kmpy
+import kmerkit  
 
 # DATA
 FASTQS = "/tmp/*.fastq.gz"
 PHENOS = "/tmp/phenos.csv"
 
 # get dict mapping {sample_names: [fastq_files]}
-fastq_dict = kmpy.get_fastqdict_from_path(
+fastq_dict = kmerkit.get_fastq_dict_from_path(
     fastq_path=FASTQS, 
     name_split="_R",
 )
 
 # count kmers
-kmpy.Kcount(
+kmerkit.Kcount(
     name='test', 
     workdir='/tmp', 
     fastq_dict=fastqdict,
@@ -32,7 +51,7 @@ kmpy.Kcount(
 ).run()
 
 # find kmers unique to one group versus another
-kmpy.Kfilter(
+kmerkit.Kfilter(
     name='test', 
     workdir='/tmp', 
     phenos=PHENOS,
@@ -44,7 +63,7 @@ kmpy.Kfilter(
 ).run()
 
 # get fastq reads filtered to only those matching target kmers
-kmpy.Kextract(
+kmerkit.Kextract(
     name='test',
     workdir='/tmp',
     fastq_dict=fastq_dict,
@@ -52,7 +71,7 @@ kmpy.Kextract(
 ).run()  
 
 # get matrix of (nsamples x nkmers) as geno data, from Kfiltered kmers.
-kmpy.Kmatrix(
+kmerkit.Kmatrix(
     name="test",
     workdir="/tmp",
     ...
