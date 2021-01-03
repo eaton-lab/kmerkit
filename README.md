@@ -1,55 +1,62 @@
-# kmertesting
-Testing scripts for kmer research
 
+# kmer assocation analysis in Python
+
+Alternative name ideas:  
+kmpy  
+kampy  
+kmerkit  
+ipykmer  
+import kmerkit as kit  
 
 
 ### Code in testing
 ```python
-
 import kmpy
 
 # DATA
 FASTQS = "/tmp/*.fastq.gz"
 PHENOS = "/tmp/phenos.csv"
 
+# get dict mapping {sample_names: [fastq_files]}
+fastq_dict = kmpy.get_fastqdict_from_path(
+    fastq_path=FASTQS, 
+    name_split="_R",
+)
+
 # count kmers
 kmpy.Kcount(
     name='test', 
     workdir='/tmp', 
-    fastq_path=FASTQS, 
-    kmersize=35, 
-    name_split="_R",
+    fastq_dict=fastqdict,
+    kmersize=31,
 ).run()
 
 # find kmers unique to one group versus another
-kmpy.Kgroup(
+kmpy.Kfilter(
     name='test', 
     workdir='/tmp', 
     phenos=PHENOS,
     trait='trait',
-    operation_g0="union",
-    operation_g1="intersect", 
-    operation_g0g1="subtract",
-    mindepth_g0=5,
-    mindepth_g1=5,
-    mindepth_g0g1=None,
-    maxdepth_g0=100,
-    maxdepth_g1=100,
-    maxdepth_g0g1=None,
-    reverse=True,
-    force=True,
+    mincov=0.25,               # must be present in 25% overall
+    mincanon=0.25,             # must exist in both forms in 25% of samples where present.
+    minmap={1: 0.5, 0: 0.0},   # must be present 50% in group 1
+    maxmap={1: 1.0, 0: 0.0},   # must be absent in group 0
 ).run()
 
 # get fastq reads filtered to only those matching target kmers
-kmpy.Kfilter(
+kmpy.Kextract(
     name='test',
     workdir='/tmp',
-    fastq_path=FASTQS,
+    fastq_dict=fastq_dict,
     group_kmers="/tmp/kgroup_test",
-    name_split="_R",
-    mindepth=5,
 ).run()  
 
+# get matrix of (nsamples x nkmers) as geno data, from Kfiltered kmers.
+kmpy.Kmatrix(
+    name="test",
+    workdir="/tmp",
+    ...
+)
 ```
 
 ### Code in development
@@ -57,31 +64,29 @@ kmpy.Kfilter(
   - Code for gwas/regression, incorporating covariance matrix (phylogeny or kinship)
 ```python
 
-# get matrix of (nsamples x nkmers) as geno data.
-kmpy.Kmatrix(...)
+# get location of kmer-matched reads mapping on reference scaffolds
+kmpy.Kmap(...)
 
+# assemble kmer-matched reads into denovo contigs
+kmpy.Kassemble(...)
 
 # run plink and gemma with geno and pheno data
 kmpy.Kgwas(...)
 
-
-# visualize sample/group geno data (scikit-learn, toyplot, etc.)
-kmpy.Kanalyze(...)
-
-
-
+# visualize sample/group geno data (toyplot, scikit-learn etc.)
+kmpy.Klearn(...)
 ```
 
 
-### Thoughts on applications in Eaton lab...
+## Applications in Eaton lab...
 
 #### 1. Pedicularis RAD data:
-  - count 35-mers in each sample
-  - group 100 samples into forked or non-forked pools
-  - identify fork-associated kmers 
-  - get reads containing kmers (Python)
-  - map reads to reference to identify scaffolds with many kmers (Python)
-  - search annotation for genes in these regions.
+  - count 31-mers in each sample (Kcount)
+  - filter to find kmers unique to forked pops (Kfilter)
+  - extract reads containing fork-kmers (Kextract)
+  - map fork-kmer-reads to reference genome and annotation (Kmap)
+  - write fork-kmers as genotype matrix (Kmatrix)
+  - test for associations using gemma (Kgwas)
 
 ```python
 
@@ -91,27 +96,37 @@ import kmpy
 FASTQS = "/pinky/.../Pedicularis_*.fastq.gz"
 PHENOS = "/pinky/.../Pedicularis_forked.csv"
 
-# count kmers in each sample and write database files
-km.Kcount(name="fork", workdir="/pinky/", fastq_path=FASTQS, kmersize=35, name_split="_R").run()
+fastq_dict = kmpy.get_fastq_dict_from_path(
+    fastq_path=FASTQS,
+    name_split="_R",
+)
 
-# intersect is no good for RAD data, instead we should do 'union' and require that 
-# a kmer is found in at least xx coverage across yy samples.
-km.Kgroup(
+# count kmers in each sample and write database files
+kmpy.Kcount(
+    name="fork", 
+    workdir="/pinky/", 
+    fastq_path=FASTQS, 
+    kmersize=31,
+).run()
+
+# filter kmers to find those associated with forked beaks
+kmpy.Kfilter(
     name="fork", 
     workdir="/pinky/", 
     phenos=PHENOS,
     trait="forked", 
-    operation_g0="union",               # all kmers in samples w/o fork
-    operation_g1="union",               # all kmers in samples w/  fork
-    operation_g0g1="counters_subtract", # operate on counts, not presence/absence
-    mindepth_g0=1,                      # subtract kmer if present in ANY non-fork
-    mindepth_g1=10,                     # require kmer present in at least ... nsamples
-    mindepth_g0g1=50,                   # tweak this: how much more common is kmer in 1 than 0?
-    reverse=True,
+    mincov=0.2,          # globally exclude rare kmers
+    mincanon=0.0,        # RAD is strand-specific, so turn this filter off
+    minmap={'forked': 0.75, 'non-forked': 0.0},   # min allows some to be missing randomly
+    maxmap={'forked': 1.00, 'non-forked': 0.0},   # max allows none to occur in non-forked
 ).run()
 
-# get original reads for each sample containing target kmers
-km.Kfilter(name="fork", workdir="/pinky/newfastqs/", fastq_path=FASTQS, name_split="_R").run()
+# extract reads from fastq files that contain target kmers
+kmpy.Kextract(
+  name="fork", 
+  workdir="/pinky/", 
+  fastq_dict=fastq_dict,
+).run()
 
 ```
 
@@ -119,7 +134,6 @@ km.Kfilter(name="fork", workdir="/pinky/newfastqs/", fastq_path=FASTQS, name_spl
 
 #### 2. Amaranth palmeri & tuberculatus data
 - rerun this analysis using 15-mers, to get 2 kmer files (palmeri and tuberc)
-  - Trim reads (best to create streaming method in Kcount)
   - count kmers in each sample
   - group by M versus F/H
   - target kmers are in 'intersect' on male plants.
@@ -134,27 +148,32 @@ import kmpy
 FASTQS = "/pinky/.../Amaranth_fastqs/*.fastq.gz"
 PHENOS = "/pinky/.../Amaranth_sampled_sexed.csv"
 
+# get dict of {sample_name: [fastq_files]}
+fastq_dict = kmpy.get_fastqdict_from_path(
+    fastq_path=FASTQS,
+    name_split="_R"
+)
+
 # count kmers in each sample and write database files
-km.Kcount(name="dioecy", workdir="/pinky/", fastq_path=FASTQS, kmersize=35, name_split="_R").run()
+km.Kcount(
+    name="dioecy", 
+    workdir="/pinky/", 
+    fastq_dict=fastq_dict, 
+    kmersize=15, 
+).run()
 
 # intersect is no good for RAD data, instead we should do 'union' and require that 
 # a kmer is found in at least xx coverage across yy samples.
-km.Kgroup(
+km.Kfilter(
     name="dioecy", 
     workdir="/pinky/", 
     phenos=mindepth=2, 
     trait="male", 
-    operation_g0="union",       # all kmers in samples that are female/hermaph.
-    operation_g1="intersect",   # shared kmers in samples that are male
-    operation_g0g1="subtract",
-    mindepth_g0=1,              # subtract kmer if present in ANY non-fork
-    mindepth_g1=10,             # require kmer present in at least ... nsamples
-    reverse=True,
+    ...
 ).run()
 
 # get original reads for each sample containing target kmers
-km.Kfilter(name="fork", workdir="/pinky/newfastqs/", fastq_path=FASTQS, name_split="_R").run()
-
+km.Kextract(...)
 ```
   
   
