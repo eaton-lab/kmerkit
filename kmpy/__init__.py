@@ -19,5 +19,4 @@ from kmpy.kmctools import KMCBIN, KMTBIN
 from kmpy.utils import set_loglevel
 
 # start the logger in INFO
-set_loglevel("DEBUG")
-logger.info(f"KMC bin: {KMCBIN}")
+set_loglevel("WARNING")
