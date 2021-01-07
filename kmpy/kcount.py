@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 """
-The main class object for executing KMC kmer funcs
+Counts kmers in fastq data files using KMC
+
+Links:
 KMC GitHub: https://github.com/refresh-bio/KMC
 KMC Paper: https://academic.oup.com/bioinformatics/article/33/17/2759/3796399
 KMC Suppl: https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/bioinformatics/33/17/10.1093_bioinformatics_btx304/3/btx304_supplementary.pdf?Expires=1611337056&Signature=4iJG6giNcZdiDuHwljf-SbELTll74FtIj3YIFvfESeZC~m39EZPJdSXfqAJStvCr5SmH9lHGRCdJGHBLseX~ZunAgFZBFFHikmODBI14Kq84ctkQMihTvBzU1rme~S6MpXcC1Erxavl~ckAEnE7jfwIRJbtm4bSkTk-sEcZKIHqR3H0SwhdN0zMmhqMFkwn~jvNo5Rd~yPFwq8aXtE2CBrMORgVUsu~ACFKnl7sWB2FLtsZ2zp~ENuVz28mYwZWkyFXnUlRq2sKHenjWdw4BChI~QDf5EULM2oXgx4dSDlLTaIaJjsZBGl8tKQGw5Ohz48YEbqO82pn14AyeJkaRsQ__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA
@@ -25,6 +27,7 @@ import json
 import subprocess
 import pandas as pd
 from loguru import logger
+
 from kmpy.kmctools import KMCBIN
 from kmpy.utils import ReadTrimming, get_fastq_dict_from_path
 
@@ -76,7 +79,7 @@ class Kcount:
         subsample_reads=None,
         mindepth=1,
         maxdepth=1e9,
-        maxcount=255,
+        maxcount=65530,
         canonical=True,
         ):
 
@@ -95,8 +98,8 @@ class Kcount:
         # output file prefix
         self.prefix = os.path.join(self.workdir, f"kcount_{self.name}")
 
-        # attributes to be filled
-        self.statsdf = None
+        # report which KMC will be used. Same will be used for all.
+        logger.info(f"KMC bin: {KMCBIN}")
 
         # constructs statsdf and names_to_files
         self.check_fastq_dict()
@@ -203,7 +206,7 @@ class Kcount:
             stdout=subprocess.PIPE,
             check=True,
             cwd=self.workdir,
-        )     
+        )
 
         # remove input file list
         os.remove(input_file)
@@ -310,9 +313,12 @@ if __name__ == "__main__":
     FILES = "~/Documents/kmpy/data/amaranths/hybridus_*.fastq.gz"
     FASTQ_DICT = get_fastq_dict_from_path(FILES, "_R")
 
+    import kmpy
+    kmpy.set_loglevel("INFO") 
+
     # example
     counter = Kcount(
-        name="hyb", 
+        name="hybridus", 
         workdir="/tmp/", 
         fastq_dict=FASTQ_DICT,
         kmersize=31,
@@ -323,7 +329,8 @@ if __name__ == "__main__":
         maxcount=255,
         canonical=True,
     )
+    # print(counter.statsdf.T)
     counter.run()
 
     # statdf is saved to the workdir as a CSV
-    print(counter.statsdf.T)
+    # print(counter.statsdf.T)
