@@ -323,7 +323,7 @@ if __name__ == "__main__":
     # test read trimming 
     FASTQ = "~/Documents/ipyrad/isolation/reftest_fastqs/1A_0_R1_.fastq.gz"
     tool = ReadTrimming(read1=FASTQ, read2=None, workdir="/tmp", subsample=10000)
-    tool.run()
+    tool.trim_reads()
 
     # check results and cleanup
     print(tool.parse_stats_from_json())

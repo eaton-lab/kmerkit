@@ -210,35 +210,6 @@ class Kextract:
         )
 
 
-    def run(self):
-        """
-        Iterate over all fastq files to call filter funcs.
-        """
-        for sname in self.names_to_infiles:        
-
-            # get fastq filename
-            fastqs = self.names_to_infiles[sname]
-
-            # accommodates paired reads:
-            for readnum, fastq in enumerate(fastqs):
-
-                # call kmc_tools filter, writes new fastq to prefix
-                self.get_reads_with_kmers(fastq, sname, readnum + 1)
-
-            # store file paths
-            self.statsdf.loc[sname, "orig_fastq_path"] = ",".join([
-                i for i in fastqs if i])
-            self.statsdf.loc[sname, "new_fastq_path"] = ",".join([
-                self.prefix + f"_{sname}_R{readnum + 1}.fastq"
-                for readnum, fastq in enumerate(fastqs)
-            ])
-
-        # get read pairs where either contains the kmer
-        self.get_paired_reads()
-
-        # get final stats
-        #self.count_kmer_reads()
-
 
     def get_paired_reads(self):
         """
@@ -374,6 +345,34 @@ class Kextract:
 
 
 
+    def run(self):
+        """
+        Iterate over all fastq files to call filter funcs.
+        """
+        for sname in self.names_to_infiles:        
+
+            # get fastq filename
+            fastqs = self.names_to_infiles[sname]
+
+            # accommodates paired reads:
+            for readnum, fastq in enumerate(fastqs):
+
+                # call kmc_tools filter, writes new fastq to prefix
+                self.get_reads_with_kmers(fastq, sname, readnum + 1)
+
+            # store file paths
+            self.statsdf.loc[sname, "orig_fastq_path"] = ",".join([
+                i for i in fastqs if i])
+            self.statsdf.loc[sname, "new_fastq_path"] = ",".join([
+                self.prefix + f"_{sname}_R{readnum + 1}.fastq"
+                for readnum, fastq in enumerate(fastqs)
+            ])
+
+        # get read pairs where either contains the kmer
+        self.get_paired_reads()
+
+        # get final stats
+        #self.count_kmer_reads()
 
 
 
@@ -418,6 +417,9 @@ if __name__ == "__main__":
     # DATA
     # FASTQS = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
     FASTQS = "~/Documents/kmpy/data/hybridus_*.fastq.gz"
+
+    import kmpy
+    kmpy.set_loglevel("DEBUG")
 
     # set up filter tool
     kfilt = Kextract(
