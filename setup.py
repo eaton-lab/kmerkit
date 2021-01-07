@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
 """
-Setup file for installing kmpy. This is used by conda for users and by
-pip installation for developers.
+Setup file for installing kmerkit. 
+This is used by conda for users and by pip installation for developers.
 
-cd kmpy
+cd kmerkit
 pip install -e .
 """
 
@@ -13,7 +13,7 @@ from setuptools import setup, find_packages
 
 
 # get version from __init__.py
-INITFILE = "kmpy/__init__.py"
+INITFILE = "kmerkit/__init__.py"
 CUR_VERSION = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]",
                     open(INITFILE, "r").read(),
                     re.M).group(1)
@@ -21,9 +21,9 @@ CUR_VERSION = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]",
 
 # run setup
 setup(
-    name="kmpy",
+    name="kmerkit",
     version=CUR_VERSION,
-    url="https://github.com/eaton-lab/kmpy",
+    url="https://github.com/eaton-lab/kmerkit",
     author="Deren Eaton and Jasmina Dzurlic",
     author_email="de2356@columbia.edu",
     description="Kmer-related operations (kmc) wrapped in Python",

@@ -21,7 +21,7 @@ import gzip
 import subprocess
 import pandas as pd
 from loguru import logger
-from kmpy.utils import KmpyError
+from kmerkit.utils import KmerkitError
 
 
 # pylint: disable=too-many-arguments
@@ -130,7 +130,7 @@ class Kextract:
             if not any(self.files):
                 msg = f"no fastq files found at: {self.files}"
                 logger.error(msg)
-                raise KmpyError(msg)
+                raise KmerkitError(msg)
 
             # sort the input files
             self.files = sorted(self.files)
@@ -155,7 +155,7 @@ class Kextract:
             
             # if not, then check each occurs 2X (PE reads)
             if not all([sample_names.count(i) == 2 for i in sample_names]):
-                raise KmpyError(
+                raise KmerkitError(
                     "Sample names are not unique, or in sets of 2 (PE). "
                     "You may need to try a different name_split setting."
                 )                
@@ -416,10 +416,10 @@ if __name__ == "__main__":
     # first run: python3 kcount.py; python3 kgroup.py
     # DATA
     # FASTQS = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
-    FASTQS = "~/Documents/kmpy/data/hybridus_*.fastq.gz"
+    FASTQS = "~/Documents/kmerkit/data/hybridus_*.fastq.gz"
 
-    import kmpy
-    kmpy.set_loglevel("DEBUG")
+    import kmerkit
+    kmerkit.set_loglevel("DEBUG")
 
     # set up filter tool
     kfilt = Kextract(

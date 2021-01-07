@@ -26,7 +26,7 @@ TODO:
 Note: coverage in these filters refers to the number or frequency
 of samples in which the kmer is present. It does not refer to the 
 count (depth) of the kmer in one or more samples. To filter kmers
-based on counts you can use the 'mincount' args in kmpy.Kcount().
+based on counts you can use the 'mincount' args in kmerkit.Kcount().
 """
 
 
@@ -36,9 +36,9 @@ import subprocess
 import numpy as np
 import pandas as pd
 from loguru import logger
-from kmpy.kcount import Kcount
-from kmpy.kmctools import KMTBIN, dump, info
-from kmpy.utils import Group, COMPLEX, KmpyError
+from kmerkit.kcount import Kcount
+from kmerkit.kmctools import KMTBIN, dump, info
+from kmerkit.utils import Group, COMPLEX, KmerkitError
 
 
 # pylint: disable=too-many-arguments
@@ -163,7 +163,7 @@ class Kfilter:
                 f"  PHENOS:   {phnames}...\n"               
             )
             logger.error(msg)
-            raise KmpyError(msg)
+            raise KmerkitError(msg)
 
         # warning for samples only in pheno that are not in database
         onlypheno = setp.difference(sets)
@@ -543,11 +543,11 @@ class Kfilter:
 if __name__ == "__main__":
 
     # first run: python3 kcount.py 
-    import kmpy
-    kmpy.set_loglevel("DEBUG")
+    import kmerkit
+    kmerkit.set_loglevel("DEBUG")
 
     # fake data
-    PHENOS = "~/Documents/kmpy/data/amaranths-phenos.csv"
+    PHENOS = "~/Documents/kmerkit/data/amaranths-phenos.csv"
 
     # load database with phenotypes data
     kgp = Kfilter(

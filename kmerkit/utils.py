@@ -28,7 +28,7 @@ OUTPUT_PARAMS:
 
 
 
-class KmpyError(Exception):
+class KmerkitError(Exception):
     """
     Exception handler that does clean exit for CLI, but also prints
     the traceback and cleaner message for API.
@@ -181,7 +181,7 @@ class ReadTrimming:
         out = proc.communicate()
         if proc.returncode:
             logger.error("FASTP ERROR")
-            raise KmpyError(out[0].decode())
+            raise KmerkitError(out[0].decode())
 
 
     def parse_stats_from_json(self):
@@ -238,7 +238,7 @@ def get_fastq_dict_from_path(fastq_path, name_split="_R"):
     if not any(files):
         msg = f"no fastq files found at: {fastq_path}"
         logger.error(msg)
-        raise KmpyError(msg)
+        raise KmerkitError(msg)
 
     # sort the input files
     files = sorted(files)
@@ -253,7 +253,7 @@ def get_fastq_dict_from_path(fastq_path, name_split="_R"):
 
     # do not allow .fastq to still be present in names
     if any(['.fastq' in i for i in sample_names]):
-        raise KmpyError(
+        raise KmerkitError(
             "Failed extracting sample names from fastq filenames. "
             "Try modifying the name_split argument."
         )
@@ -263,7 +263,7 @@ def get_fastq_dict_from_path(fastq_path, name_split="_R"):
             
         # if not, then check each occurs 2X (PE reads)
         if not all([sample_names.count(i) == 2 for i in sample_names]):
-            raise KmpyError(
+            raise KmerkitError(
                 "Sample names are not unique, or in sets of 2 (PE). "
                 "You may need to try a different name_split setting."
             )                
@@ -314,7 +314,7 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
         ]
     }
     logger.configure(**config)
-    logger.enable("kmpy")
+    logger.enable("kmerkit")
 
 
 

@@ -8,7 +8,7 @@ import os
 import sys
 import subprocess
 from loguru import logger
-from kmpy.utils import KmpyError
+from kmerkit.utils import KmerkitError
 
 
 KMCBIN = os.path.join(sys.prefix, "bin", "kmc")

@@ -28,8 +28,8 @@ import subprocess
 import pandas as pd
 from loguru import logger
 
-from kmpy.kmctools import KMCBIN
-from kmpy.utils import ReadTrimming, get_fastq_dict_from_path
+from kmerkit.kmctools import KMCBIN
+from kmerkit.utils import ReadTrimming, get_fastq_dict_from_path
 
 
 # pylint: disable=too-many-arguments
@@ -310,11 +310,11 @@ if __name__ == "__main__":
 
     # test dataset w/ R1 and R2 files
     # FILES = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
-    FILES = "~/Documents/kmpy/data/amaranths/hybridus_*.fastq.gz"
+    FILES = "~/Documents/kmerkit/data/amaranths/hybridus_*.fastq.gz"
     FASTQ_DICT = get_fastq_dict_from_path(FILES, "_R")
 
-    import kmpy
-    kmpy.set_loglevel("INFO") 
+    import kmerkit
+    kmerkit.set_loglevel("INFO") 
 
     # example
     counter = Kcount(
