@@ -1,28 +1,31 @@
 #!/usr/bin/env python
 
 """
-Kcounts -> Kgroup -> Kmatrix
+Kcounts -> Kfilter -> Kmatrix
 
-Takes kmer databases for N samples and constructs a matrix
-of (nsamples, nkmers) of either count or binary data.
+Takes kmer count databases for N samples from Kcounts and the set 
+of filtered kmers from Kfilter and constructs a genotype matrix of 
+(nsamples, nkmers) of either count or binary data. It removes any
+columns of the matrix that are invariant or empty (although these 
+are usually already removed in Kfilter).
 
 TODO: 
     - support count (non-binary) matrix
-    - decide if there is need for different min,max settings beyond global?
-        - maybe minmap setting could apply to intersect groups, and 
-          this could be implemented by setting depths to one and then
-          -ci to minmap[i].
+    - should min and max depths be implemented again here?
 
 """
 
 import os
-import sys
 import subprocess
 import numpy as np
 import pandas as pd
 from loguru import logger
 from kmpy.utils import KmpyError, Group, COMPLEX
+from kmpy.kmctools import KMTBIN, info, dump
 
+
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-instance-attributes
 
 
 class Kmatrix:
@@ -81,9 +84,6 @@ class Kmatrix:
         self.counts = counts
         self.normalize = normalize
         self.subsample = subsample
-
-        # binary path
-        self.kmctools_binary = os.path.join(sys.prefix, "bin", "kmc_tools")
 
         # paths to files 
         self.statsdf = ""
@@ -178,7 +178,7 @@ class Kmatrix:
 
         # cmd: 'kmer_tools [global_params] complex <operations file>'
         # logger.debug(complex_string)
-        cmd = [self.kmctools_binary, "complex", complex_file]
+        cmd = [KMTBIN, "complex", complex_file]
 
         # call subprocess on the command
         out = subprocess.run(
@@ -223,7 +223,7 @@ class Kmatrix:
             sampledb = self.names_to_db[sname]
 
             # dump to kmers file
-            self.dump(sampledb, count_kmers=True, write_counts=False)            
+            dump(sampledb, write_counts=False)
 
             # open file handles
             sampio = open(sampledb + "_kmers.txt", 'r')
@@ -276,7 +276,7 @@ class Kmatrix:
         """  
         # build command to subtract union from intersect
         cmd = [
-            self.kmctools_binary, 
+            KMTBIN, 
             "simple",
             self.prefix + "_union",      # all kmers (any sample)
             self.prefix + "_intersect",  # some kmers (shared by all)
@@ -303,19 +303,18 @@ class Kmatrix:
         """
         # get union of kmer counts across all subsamples
         self.run_complex(oper="union")
-        self.dump(self.prefix + "_union", count_kmers=True)
+        #nkmers = info(self.prefix + "_union")
+        dump(self.prefix + "_union")
 
         # get intersect of kmer counts across all subsamples
         self.run_complex(oper="intersect")
-        self.dump(self.prefix + "_intersect", count_kmers=True)
+        #nkmers = info(self.prefix + "_intersect")
+        dump(self.prefix + "_intersect")
 
         # get kmers that are variable (union - intersect)
         self.get_var_kmers()
-        self.nkmers = self.dump(
-            self.prefix + "_var", 
-            count_kmers=True, 
-            write_counts=False,
-        )
+        self.nkmers = info(self.prefix + "_var")
+        dump(self.prefix + "_var", write_counts=False)
 
         # build empty array
         self.matrix = np.memmap(
@@ -355,62 +354,6 @@ class Kmatrix:
                     os.remove(pre + post)
 
 
-
-    def dump(self, database, count_kmers=False, write_counts=True):
-        """
-        Dump kmers to text for a specified database. 
-        calls: 'kmc_tools transform /tmp/name dump /tmp/name_kmers.txt'
-
-        Parameters
-        ----------
-        ...
-        count_kmers (bool):
-            If True then returns a int with n unique kmers after applying 
-            the minmax filters.
-        write_counts (bool):
-            If False then the counts are excluded from dump txt file.
-
-        """
-        # if counts is False then write 'compact' database
-        cmd = [
-            self.kmctools_binary,
-            "transform", 
-            database,
-            "-ci{}".format(self.mindepth),
-            "-cx{}".format(self.maxdepth),
-            # "-cs{}".format(maxcount),
-            "dump",
-            "-s",
-            database + "_kmers.txt",
-            "-ci{}".format(self.mindepth),
-            "-cx{}".format(self.maxdepth),
-            "-cs{}".format(self.maxcount),           
-        ]
-
-        # call subprocess on the command
-        subprocess.run(
-            cmd, 
-            stderr=subprocess.STDOUT, 
-            stdout=subprocess.PIPE,
-            check=True,
-            cwd=self.workdir,
-        )
-
-        # overwrite with file cutting first column only
-        if not write_counts:
-            cmd = ["cut", "-f1", database + "_kmers.txt"]
-            with open(database + "_kmers.tmp", "w") as ofile: 
-                subprocess.run(cmd, stdout=ofile, check=True)
-            os.rename(database + "_kmers.tmp", database + "_kmers.txt")
-
-        # count and report number of kmers actually written (i.e., w/ filters)
-        if count_kmers:
-            kfile = database + "_kmers.txt"
-            with open(kfile, 'r') as indat:
-                nkmers = sum(1 for i in indat)
-            logger.info(f"{os.path.split(database)[-1]} dump: {nkmers} kmers")
-            return nkmers
-        return 0
 
 
 
