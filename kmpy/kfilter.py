@@ -543,19 +543,20 @@ class Kfilter:
 if __name__ == "__main__":
 
     # first run: python3 kcount.py 
+    import kmpy
+    kmpy.set_loglevel("DEBUG")
 
     # fake data
     PHENOS = "~/Documents/kmpy/data/amaranths-phenos.csv"
 
     # load database with phenotypes data
     kgp = Kfilter(
-        name="hyb",
+        name="hybridus",
         workdir="/tmp",
         phenos=PHENOS,
         trait="fake",
         mincov=0.25,
-        mincov_canon=0.25,
-        #mapcov={0: (0.0, 0.0), 1: (0.5, 1.0)},
+        mincov_canon=1.0, #0.25,
         minmap={
             0: 0.0,
             1: 0.5,
@@ -563,7 +564,8 @@ if __name__ == "__main__":
         maxmap={
             0: 0.0,
             1: 1.0,
-        }
+        },
+        #mapcov={0: (0.0, 0.0), 1: (0.5, 1.0)},
     )
 
     # dump the kmers to a file
