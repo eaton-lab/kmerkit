@@ -6,7 +6,6 @@ Counts kmers in fastq data files using KMC
 Links:
 KMC GitHub: https://github.com/refresh-bio/KMC
 KMC Paper: https://academic.oup.com/bioinformatics/article/33/17/2759/3796399
-KMC Suppl: https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/bioinformatics/33/17/10.1093_bioinformatics_btx304/3/btx304_supplementary.pdf?Expires=1611337056&Signature=4iJG6giNcZdiDuHwljf-SbELTll74FtIj3YIFvfESeZC~m39EZPJdSXfqAJStvCr5SmH9lHGRCdJGHBLseX~ZunAgFZBFFHikmODBI14Kq84ctkQMihTvBzU1rme~S6MpXcC1Erxavl~ckAEnE7jfwIRJbtm4bSkTk-sEcZKIHqR3H0SwhdN0zMmhqMFkwn~jvNo5Rd~yPFwq8aXtE2CBrMORgVUsu~ACFKnl7sWB2FLtsZ2zp~ENuVz28mYwZWkyFXnUlRq2sKHenjWdw4BChI~QDf5EULM2oXgx4dSDlLTaIaJjsZBGl8tKQGw5Ohz48YEbqO82pn14AyeJkaRsQ__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA
 KMC-tools Docs: https://github.com/refresh-bio/KMC/blob/master/kmc_tools.pdf
 KMC Docs: doesn't exist apparently...
 
@@ -34,9 +33,6 @@ from kmerkit.utils import ReadTrimming, get_fastq_dict_from_path
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
-
-
-
 
 
 class Kcount:
