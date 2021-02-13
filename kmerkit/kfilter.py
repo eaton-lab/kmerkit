@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 """
 Kcount -> Kfilter
 
@@ -28,7 +27,6 @@ of samples in which the kmer is present. It does not refer to the
 count (depth) of the kmer in one or more samples. To filter kmers
 based on counts you can use the 'mincount' args in kmerkit.Kcount().
 """
-
 
 import os
 import shutil
