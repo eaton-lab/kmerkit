@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Kcounts -> Kgroup --[ kmatrix -> Kgwas ]--> Kextract
+Kcounts -> Kfilter --[ kmatrix -> Kgwas ]--> Kextract
 
 Extract fastq reads containing target kmers to produce new 
 fastq files with subset of matching read(pair)s. The fastq
@@ -378,8 +378,7 @@ class Kextract:
 
     def count_kmer_reads(self):
         """
-        Test file is not fetched from statsdf... 
-        
+        Test file is not fetched from statsdf...
         """
         for sname in self.names_to_infiles:
 
