@@ -37,8 +37,14 @@ setup(
         "future",
         "loguru", 
         "pandas",
+        "typer",
+        # kmc,
+        # fastp,
+        # gemma,
     ],
-    entry_points={},
+    entry_points={
+        "console_scripts": ["kmerkit = kmerkit.__main__:app"]
+    },
     license='GPL',
     classifiers=[
         'Programming Language :: Python :: 3.7',
