@@ -1,0 +1,54 @@
+site_name: kmerkit
+
+repo_url: https://github.com/eaton-lab/kmerkit
+
+theme:
+  name: material
+  palette:
+    primary: teal
+    accent: deep orange
+  icon:
+    logo: octicons/hubot-24
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+
+nav:
+  - Home: index.md
+  - Ethos: ethos.md
+  - Installation: installation.md
+  - Tutorial - User Guide:
+      - Quick-start: quick-start.md
+      - kmer counting (kcount): kcount.md
+      - kmer filtering (kfilter): kfilter.md  
+  - Cookbooks:
+      - Amaranth-dioecy: cookbooks/1-amaranthus-dioecy.md
+      - Arabidopsis-gwas: cookbooks/2-arabidopsis-gwas.md
+
+markdown_extensions:
+  - toc:
+      toc_depth: 4
+  - markdown.extensions.codehilite:
+      guess_lang: false      
+  - admonition
+  - codehilite
+  # - extra
+  - pymdownx.superfences:
+      custom_fences:
+      - name: mermaid
+        class: mermaid
+        format: !!python/name:pymdownx.superfences.fence_div_format ''
+  - pymdownx.tabbed      
+  - pymdownx.details
+  # - pymdownx.highlight  
+
+extra_javascript:
+  - js/termynal.js
+  - js/custom.js 
+  - js/mermaid.js
+  # - https://unpkg.com/mermaid@8.4.6/dist/mermaid.min.js
+extra_css:
+  - css/termynal.css
+  - css/custom.css
