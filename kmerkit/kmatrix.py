@@ -20,8 +20,8 @@ import subprocess
 import numpy as np
 import pandas as pd
 from loguru import logger
-from kmpy.utils import KmpyError, Group, COMPLEX
-from kmpy.kmctools import KMTBIN, info, dump
+from kmerkit.utils import KmerkitError, Group, COMPLEX
+from kmerkit.kmctools import KMTBIN, info, dump
 
 
 # pylint: disable=too-many-arguments
