@@ -13,8 +13,8 @@ from kmerkit.utils import KmerkitError
 
 KMCBIN = os.path.join(sys.prefix, "bin", "kmc")
 KMTBIN = os.path.join(sys.prefix, "bin", "kmc_tools")
-assert os.path.exists(KMCBIN)
-
+assert os.path.exists(KMCBIN), (
+    "kmc binary missing; call 'conda install kmc -c bioconda'")
 
 
 def info(database, mindepth=0):
