@@ -21,6 +21,31 @@ cd kmerkit
 pip install -e .
 ```
 
+### Command Line Interface
+```bash
+kmerkit --help
+```
+
+```bash
+kmerkit kcount \
+  --name test \
+  --workdir /tmp \
+  --fastqs './data/amaranths/hybridus_SLH_AL_10*' \
+  --kmersize 17 \
+  --loglevel INFO 
+```
+
+```bash
+# use same name and workdir to operate on results of 
+kmerkit kfilter \
+  --name test \
+  --workdir /tmp \
+  --fastqs './data/amaranths/hybridus_SLH_AL_10*' \
+  --kmersize 17 \
+  --loglevel INFO 
+```
+
+
 
 #### Interactive analysis in jupyter
 The preferred way to run analyses in kmerkit is to use the API 
