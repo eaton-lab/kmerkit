@@ -28,11 +28,8 @@ import pandas as pd
 from loguru import logger
 
 from kmerkit.kmctools import KMCBIN
-from kmerkit.utils import ReadTrimming, get_fastq_dict_from_path
-
-
-# pylint: disable=too-many-arguments
-# pylint: disable=too-many-instance-attributes
+from kmerkit.read_trimming import ReadTrimming
+from kmerkit.utils import get_fastq_dict_from_path
 
 
 class Kcount:
@@ -310,7 +307,7 @@ if __name__ == "__main__":
     FASTQ_DICT = get_fastq_dict_from_path(FILES, "_R")
 
     import kmerkit
-    kmerkit.set_loglevel("INFO") 
+    kmerkit.set_loglevel("INFO")
 
     # example
     counter = Kcount(
