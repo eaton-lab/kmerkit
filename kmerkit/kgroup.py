@@ -16,7 +16,7 @@ import sys
 import subprocess
 import pandas as pd
 from loguru import logger
-from kmpy.utils import KmpyError, Group, COMPLEX
+from kmerkit.utils import KmerkitError, Group, COMPLEX
 
 
 # pylint: disable=too-many-arguments
