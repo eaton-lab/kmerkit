@@ -217,7 +217,8 @@ class Kextract:
         Current approach may be memory crushing...
         """
         for sname in self.statsdf.index:
-            logger.debug(f"pair fix {sname}")
+            logger.debug(f"pair matching in {sname}")
+
             # get fastq file paths of original data
             orig_fastqs = self.statsdf.at[sname, 'orig_fastq_path']
             old1, old2 = orig_fastqs.split(",")
@@ -415,19 +416,19 @@ if __name__ == "__main__":
     # first run: python3 kcount.py; python3 kgroup.py
     # DATA
     # FASTQS = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
-    FASTQS = "~/Documents/kmerkit/data/hybridus_*.fastq.gz"
+    FASTQS = "~/Documents/kmerkit/data/amaranths/hybridus_*.fastq.gz"
 
     import kmerkit
     kmerkit.set_loglevel("DEBUG")
 
     # set up filter tool
     kfilt = Kextract(
-        name="test",
+        name="hybridus",
         workdir="/tmp",
         fastq_path=FASTQS,
-        group_kmers="/tmp/kgroup_test",
         name_split="_R",
-        mindepth=10,
+        group_kmers="/tmp/kfilter_hybridus_filtered",
+        mindepth=1,
     )
     kfilt.run()
     print(kfilt.statsdf.T)
