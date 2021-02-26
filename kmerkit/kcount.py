@@ -131,10 +131,12 @@ class Kcount:
         Expand file paths and check that they exist. Also,
         TODO: check sample names and do not allow strange characters.
         """
-        for oldkey, val in self.fastq_dict.items():
+        okeys = list(self.fastq_dict.keys())
+        for okey in okeys:
+            val = self.fastq_dict[okey]
 
             # get new key without any strange characters
-            newkey = (oldkey
+            newkey = (okey
                 .replace("-", "_")
                 .replace("@", "_")
                 .replace(" ", "_")
@@ -155,7 +157,7 @@ class Kcount:
                 file_list.append(fullpath)
 
             # remove old key (in case of strange characters) and store new.
-            del self.fastq_dict[oldkey]
+            del self.fastq_dict[okey]
             self.fastq_dict[newkey] = sorted(file_list)
 
 
@@ -307,7 +309,7 @@ if __name__ == "__main__":
     FASTQ_DICT = get_fastq_dict_from_path(FILES, "_R")
 
     import kmerkit
-    kmerkit.set_loglevel("INFO")
+    kmerkit.set_loglevel("DEBUG")
 
     # example
     counter = Kcount(
