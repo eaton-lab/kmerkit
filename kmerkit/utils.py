@@ -205,8 +205,3 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
     }
     logger.configure(**config)
     logger.enable("kmerkit")
-
-
-
-if __name__ == "__main__":
-    pass
