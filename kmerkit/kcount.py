@@ -129,7 +129,6 @@ class Kcount:
     def check_fastq_dict(self):
         """
         Expand file paths and check that they exist. Also,
-        TODO: check sample names and do not allow strange characters.
         """
         okeys = list(self.fastq_dict.keys())
         for okey in okeys:
@@ -309,7 +308,7 @@ if __name__ == "__main__":
     FASTQ_DICT = get_fastq_dict_from_path(FILES, "_R")
 
     import kmerkit
-    kmerkit.set_loglevel("DEBUG")
+    kmerkit.set_loglevel("INFO")
 
     # example
     counter = Kcount(
