@@ -25,6 +25,7 @@ nav:
       - kmer filtering (kfilter): kfilter.md  
   - Cookbooks:
       - Amaranth-dioecy: cookbooks/1-amaranthus-dioecy.md
+      - Amaranth-dioecy (API): cookbooks/1-amaranthus-dioecy-api.md
       - Arabidopsis-gwas: cookbooks/2-arabidopsis-gwas.md
 
 markdown_extensions:

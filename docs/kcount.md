@@ -150,8 +150,22 @@ simply create the fastq dictionary manually.
 The `kcount` module includes a main Kcount class object for running 
 kmer counting operations and viewing that stats associated with each 
 sample.
+
+The `Kcount` class is used to call the `kmc` binary to count kmers in each 
+sample and store the results in a set of database files. The only required
+argument here is the fastq_dict, which specifies the grouping of reads to 
+samples. All other parameters affect either how the analysis is run, or 
+how the output files will be stored. The `name` and `workdir` params will
+specify the location where database files will be written, using `name` as 
+a prefix. The reads can optionally be run through a read-trimming process that
+uses `fastp` to trim adapters and low quality tails from reads. This can also
+be used to `subsample` the number of reads to normalize among samples. The
+`mindepth` and `maxdepth` are set to arbitrarily low and high values, since
+users will typically wish to apply depth filters at later stages, but doing so
+here can speed up later steps and save disk space.
+
 ```python
-kco = kmerkit.kcount(
+tool = kmerkit.kcount(
 	name="test",
 	workdir="/tmp",
 	fastq_dict = 
