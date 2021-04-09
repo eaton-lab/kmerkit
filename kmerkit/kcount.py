@@ -183,6 +183,7 @@ class Kcount:
             "-cs{}".format(self.maxcount),
             "-k{}".format(self.kmersize),
             "-j{}".format(output_file + "-stats.json"),
+            "-t{}".format(20),
             "@" + input_file,
             output_file,
             self.workdir,
