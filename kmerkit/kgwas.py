@@ -12,7 +12,7 @@ to a plink formatted input file for gemma analysis.
 import os
 import sys
 import numpy as np
-from logurur import logger
+from loguru import logger
 
 
 
