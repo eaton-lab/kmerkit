@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Kcounts -> Kgroup -> Kmatrix -> Kgwas
+Kcounts -> [Kfilter] -> Kmatrix -> Kgwas
 
 Genome-wide association study using kmers implemented by taking
 kmers converted to genotype calls in Kmatrix and here converting

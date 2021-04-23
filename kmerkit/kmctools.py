@@ -32,7 +32,10 @@ def info(database, mindepth=0):
             "-ci{}".format(mindepth)            
         ]
         logger.debug(" ".join(cmd))
-        subprocess.run(cmd, check=True)  #, stdout=subprocess.PIPE)
+        subprocess.run(
+            cmd, 
+            check=True, 
+            stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
         # rename database 
         database += "_tmpinfo"
@@ -58,7 +61,8 @@ def info(database, mindepth=0):
 
     # cleanup
     if mindepth > 1:
-        os.remove(database)
+        os.remove(database + ".kmc_suf")
+        os.remove(database + ".kmc_pre")        
     return nkmers
 
 
@@ -121,3 +125,16 @@ def dump(database, write_kmers=True, write_counts=True):
             with open(database + "_kmers.tmp", "w") as ofile: 
                 subprocess.run(cmd, stdout=ofile, check=True)
             os.rename(database + "_kmers.tmp", database + "_kmers.txt")
+
+
+if __name__ == "__main__":
+
+    import kmerkit
+    kmerkit.set_loglevel("DEBUG")
+    from kmerkit.kschema import Project
+
+    PROJ = Project.parse_file("/tmp/test.json")
+    prefix = PROJ.dict()['kcount']['data']['hybridus_SLH_AL_1060']['database']
+
+    # print(info(prefix, 1))
+    dump(prefix)

@@ -3,41 +3,44 @@
 """
 Kcount -> Kfilter
 
-Apply filters to kmer sets to find a target set of kmers.
-
-Loads a phenotypes CSV file and trait column (or imap dictionary in the API)
-to assign samples to groups; then apply kmer_tools operations
-to filter kmers for inclusion in the dataset based on:
-    - mincov: minimum frequency across all samples
-    - minmap: dict of min freq in each group (assigned by phenodf.trait)
-    - mincov_canon: minimum frequency across all samples of a kmer
-        being in present in both directional forms.
-
-TODO:
-    - canon shouldn't apply to all samples, It should apply
-      to only those samples for which the kmer is present...
-
-    - b/c canon is a bit time and disk consuming, we could apply it
-      after the other filters, so we only have to focus on a reduced
-      set of kmers. Would this be useful? ... Still need to start by 
-      counting all non-con kmers in each sample...
+Apply filters to kmer databases to create two sets of kmers, the 
+FILTERED set and the KEEP set.
 
 Note: coverage in these filters refers to the number or frequency
 of samples in which the kmer is present. It does not refer to the 
 count (depth) of the kmer in one or more samples. To filter kmers
-based on counts you can use the 'mincount' args in kmerkit.Kcount().
+based on counts you should use the 'min_depth' arg in the kcount step.
+
+CLI Usage: 
+------------------
+kmerkit filter \
+    --json /tmp/test.json \
+    --traits traits.CSV \
+    --min_map 0.0 1.0 \
+    --max_map 0.1 1.0 \
+    --min_map_canon 0.0 0.5 \
+    --min_cov 5
 """
 
+# TODO CANON FILTER:
+#     - canon shouldn't apply to all samples, It should apply
+#       to only those samples for which the kmer is present...
+
+#     - b/c canon is a bit time and disk consuming, we could apply it
+#       after the other filters, so we only have to focus on a reduced
+#       set of kmers. Would this be useful? ... Still need to start by 
+#       counting all non-con kmers in each sample...
+
+
 import os
-import shutil
+import itertools
 import subprocess
 import numpy as np
-import pandas as pd
-from loguru import logger
-from kmerkit.kcount import Kcount
-from kmerkit.kmctools import KMTBIN, dump, info
-from kmerkit.utils import Group, COMPLEX, KmerkitError
 
+from loguru import logger
+from kmerkit.kmctools import KMTBIN, info
+from kmerkit.utils import Group, COMPLEX, KmerkitError
+from kmerkit.kschema import KfilterParams, KfilterData, KfilterBase, Project
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
@@ -53,178 +56,140 @@ class Kfilter:
 
     Parameters
     ----------
-    name (str):
-        A name prefix for output files.
-    workdir (str):
-        Directory for output files, and where kmer database files are
-        currently located (and the .csv from kcount).
-    phenos (str):
-        Path to a CSV formatted phenotypes file with sample names as
-        index and trait names as columns. Values of 'trait' should be 
-        binary, 0 and 1 are used to assign samples to groups g0 or g1.
-    trait (str):
-        A column name from the phenos file to use for this analysis. 
-        Values should be binary (0/1).    
-    mincov (int, float):
+    json_file (str):
+        A kmerkit project JSON file.
+    traits (dict[str, int]):
+        Map of binary trait values to samples names. Examples:
+        traits = {0: ['a', 'b', 'c'], 1: ['d', 'e', 'f']}
+    min_cov (int, float):
         Global minimum coverage of a kmer across all samples as an
         integer or applied as a proportion (float).
-    mincov_canon (int, float):
+    min_cov_canon (int, float):
         Minimum coverage of a kmer across all samples where it must
         occur in both directions (--> and comp(<--)), as an integer 
         or applied as a proportion (float).
-    minmap (dict):
+    min_map (dict):
         Minimum coverage of a kmer across samples in each group (trait
         category). Keys of the dict should be trait values/categories
         and values of the dict should be floats representing the 
         minimum proportion of samples in the group for which the kmer
         must be present. Examples:
-        minmap = {0: 0.0, 1: 0.9} or minmap={"red": 0.9, "blue": 0.0}.
-    maxmap (dict):
+            minmap = {0: 0.0, 1: 0.9}
+    max_map (dict):
         Maximum coverage of a kmer across samples in each group (trait
         category). Keys of the dict should be trait values/categories
         and values of the dict should be floats representing the 
         maximum proportion of samples in the group for which the kmer
         can be present. Examples:
-        maxmap = {0: 0.0, 1: 1.0} or maxmap={"red": 1.0, "blue": 0.0}.
-
+            maxmap = {0: 0.0, 1: 1.0}
 
     Returns
     ----------
     None. Writes kmc binary database to prefix <workdir>/kfilter_{name}
     """
-    def __init__(
-        self, 
-        name, 
-        workdir, 
-        phenos,
-        trait, 
-        mincov=0.0,
-        mincov_canon=0.25,
-        minmap=None,
-        maxmap=None,
-        ):
+    def __init__(self, json_file, traits, min_cov, min_map, max_map, min_map_canon):
 
-        # store file parameters
-        self.name = name
-        self.workdir = os.path.realpath(os.path.expanduser(workdir))
-        self.kcpath = os.path.join(self.workdir, f"kcount_{name}.csv")
-        self.phenos = os.path.realpath(os.path.expanduser(phenos))
-        self.trait = trait
+        # load user inputs
+        self.json_file = json_file
+        self.project = Project.parse_file(json_file).dict()
+        self.traits_to_samples = traits
 
-        # store filter params
-        self.mincov = mincov
-        self.mincov_canon = mincov_canon
-        self.minmap = (minmap if minmap is not None else {})
-        self.maxmap = (maxmap if maxmap is not None else {})
-        self._minmax_empty = self.minmap == self.maxmap == {}
-        
-        # output prefix for .complex, subtract, countsubtract, intersect
-        self.prefix = os.path.join(self.workdir, f"kfilter_{self.name}")
+        # will be subsampled down to matching taxa
+        self.database = self.project['kcount']['data']
+        self.samples_to_traits = {}
 
-        # attributes to be filled. Samples is only those in kcounts & phenos.
-        self.samples = []
-        self.phenodf = None
-        self.kcountdf = None
+        # to be filled with results
+        self.samples = {}
 
-        # fills .kcountdf, .phenodf and .samples
-        self.load_dataframes()
+        # use Serializable schema to perform type checking
+        self._params = KfilterParams(
+            min_cov=min_cov,
+            min_map=min_map,
+            max_map=max_map,
+            min_map_canon=min_map_canon,
+        )
+        self.params = self._params.dict()
 
-        # checks minmap against .phenodf.trait and .samples
-        # and converts mincov and minmap to ints
-        self.check_filters()
+        # prefix for output files
+        self.prefix = os.path.join(
+            self.project['workdir'], f"{self.project['name']}_kfilter")
+
+        # traits will be filled w/ union of kcount db and traits
+        self.select_samples()
+
+        # converts filter params to integers and checks
+        self.filters_to_ints()
 
 
 
-    def load_dataframes(self):
+    def select_samples(self):
         """
-        load kcount and phenotype dataframes to get sample names, 
-        group info, and stats. Check all names for matching.
+        Filter samples to those present in both database and traits_dict
         """
-        self.kcountdf = pd.read_csv(self.kcpath, index_col=0)
-        self.phenodf = pd.read_csv(self.phenos, index_col=0)
-
-        # check that 'trait' is in pheno.
-        assert self.trait in self.phenodf.columns, (
-            f"trait {self.trait} not in phenos")
-
-        # check that names in kcountdf match those in phenodf
-        setp = set(self.phenodf.index)
-        sets = set(self.kcountdf.index)
+        # check that names in kcountdf match those in traits
+        setp = set(self.database)
+        sets = set(itertools.chain(*self.traits_to_samples.values()))
+        revtraits = {}
+        for key in self.traits_to_samples:
+            for sample in self.traits_to_samples[key]:
+                revtraits[sample] = key
 
         # raise an error if no names overlap
         if setp.isdisjoint(sets):
-            dbnames = ", ".join(self.kcountdf.index[:4].tolist())
-            phnames = ", ".join(self.phenodf.index[:4].tolist())
+            db_names = ", ".join(setp)
+            tr_names = ", ".join(sets)
             msg = (
                 "Sample names in pheno do not match names in database:\n"
-                f"  DATABASE: {dbnames}...\n"
-                f"  PHENOS:   {phnames}...\n"               
+                f"  KMER_DATABASE: {db_names}...\n"
+                f"  TRAITS:   {tr_names}...\n"               
             )
             logger.error(msg)
             raise KmerkitError(msg)
 
-        # warning for samples only in pheno that are not in database
-        onlypheno = setp.difference(sets)
-        if onlypheno:
+        # warning for samples only in traits that are not in database
+        only_traits = setp.difference(sets)
+        if only_traits:
             logger.warning(
-                f"Skipping samples in pheno but not in database: {onlypheno}")
-
-        # store overlapping samples as the test samples
-        self.samples = sorted(setp.intersection(sets))
-
-        # keep only rows in pheno that are in sa
-        self.phenodf = self.phenodf.loc[self.samples]
-
-
-
-    def check_filters(self):
-        """
-        Check that minmap keys are the same as values in .phenodf.trait, 
-        and convert values to ints from floats (proportions).
-
-        Default minmap is 0, and maxmap is 1.0.
-        """
-        # int encode mincov
-        if isinstance(self.mincov, float):
-            self.mincov = int(np.floor(self.mincov * len(self.samples)))
-
-        # get the values of 'trait' in phenos
-        values = set(self.phenodf[self.trait])
-
-        # iterate over value categories assigning min and max
-        for val in values:
-
-            # set value if user did not provide one
-            if val not in self.minmap:
-                self.minmap[val] = 0.0
-            if val not in self.maxmap:
-                self.maxmap[val] = 1.0
-
-            # check if there are ANY samples with this trait
-            mask = self.phenodf[self.trait] == val
-            nsamps = self.phenodf.loc[mask].shape[0]
-
-            # check that minmap key is in 'trait' values
-            assert nsamps, (
-                "Keys in minmap and maxmap should match 'trait' values. "
-                "No samples present in both kcount database and the "
-                f"phenos database have {self.trait} == {val}:\n"
-                f"{self.phenodf[self.trait]}"
+                "Skipping samples in traits but not in kmer_database: "
+                f"{only_traits}"
             )
 
-            # int encode minmax
-            if isinstance(self.minmap[val], float):
-                asint = int(np.floor(self.minmap[val] * nsamps))
-                self.minmap[val] = asint
-                asint = int(np.floor(self.maxmap[val] * nsamps))                
-                self.maxmap[val] = asint
+        # store overlapping samples as the test samples
+        shared_set = sorted(setp.intersection(sets))
+        self.database = {i: self.database[i] for i in shared_set}
+        self.samples_to_traits = {i: revtraits[i] for i in shared_set}
+        self.traits_to_samples[0] = [
+            i for (i, j) in self.samples_to_traits.items() if j == 0
+        ]
+        self.traits_to_samples[1] = [
+            i for (i, j) in self.samples_to_traits.items() if j == 1
+        ]
 
-        logger.debug(f"int encoded minmap: {self.minmap}")
-        logger.debug(f"int encoded maxmap: {self.maxmap}")
+
+
+    def filters_to_ints(self):
+        """
+        Converts filter parameter float values to integers because that
+        is what KMC requires.
+        """
+        # int encode min_cov
+        if isinstance(self.params['min_cov'], float):
+            self.params['min_cov'] = int(
+                np.floor(self.params['min_cov'] * len(self.database)))
+            logger.debug(f"int encoded min_cov: {self.params['min_cov']}")
+
+        # int encoded map values
+        for key in [0, 1]:
+            nsamples = len(self.traits_to_samples[key])
+            assert nsamples, f"No samples are set to state={key}"
+            for param in ['min_map', 'max_map', 'min_map_canon']:
+                value = int(np.floor(self.params[param][key] * nsamples))
+                self.params[param][key] = value
+                logger.debug(f"int encoded {param}[{key}]: {value}")
 
 
 
-    def call_complex(self, dbdict, mindepth, maxdepth, oper, outname):
+    def call_complex(self, dbdict, min_depth, max_depth, oper, out_name):
         """
         Builds the 'complex' input string (see COMPLEX global)
         to call complex operations using kmer_tools. Samples are 
@@ -244,12 +209,12 @@ class Kfilter:
         input_str = "\n".join(input_list)
 
         # OUTPUT: (a + b + c)
-        outname = self.prefix + "_" + outname
+        outname = self.prefix + "_" + out_name
         group = Group([str(i) for i in dbdict.keys()])
         output_str = f"{outname} = {group.get_string(oper)}"
 
         # OUTPUT_PARAMS: -ci0
-        oparams_str = f"-ci{mindepth} -cx{maxdepth}" 
+        oparams_str = f"-ci{min_depth} -cx{max_depth}"
 
         # Build complex string and print to logger
         complex_string = COMPLEX.format(**{
@@ -273,172 +238,369 @@ class Kfilter:
             stderr=subprocess.STDOUT, 
             stdout=subprocess.PIPE,
             check=True,
-            cwd=self.workdir,
+            # cwd=self.workdir,
         )
-        logger.info(f"new database: {os.path.basename(outname)}")
+        logger.info(f"new database: {os.path.basename(out_name)}")
         os.remove(complex_file)
 
 
 
-    def filter_canon(self):
+    # def filter_canon(self):
+    #     """
+    #     Filter kmers that tend to only occur in one form or the
+    #     other, likely due to adapters. 
+
+    #     Returns:
+    #     None. 
+    #     Writes kmc database prefix=<workdir>/{name}_kfilter_canon-filtered
+    #     """
+    #     # database file for storing counts of kmers being present in both forms
+    #     bothdb = self.prefix + "_canonsums"
+
+    #     # iterate over samples
+    #     for sidx, sname in enumerate(self.samples):
+
+    #         # get fastq dict w/ fastqs used in kcounts
+    #         fastq_dict = {sname: self.kcountdf.at[sname, "fastqs"].split(",")}
+
+    #         # get options used in kcounts, but not mindepth (must be 1)
+    #         kcount_params = {
+    #             'workdir': self.workdir,
+    #             'name': 'tmp-canon',
+    #             'fastq_dict': fastq_dict,
+    #             'kmersize': self.kcountdf.at[sname, "kmersize"],
+    #             'subsample_reads': self.kcountdf.at[sname, "subsample_reads"],
+    #             'trim_reads': self.kcountdf.at[sname, "trimmed"],
+    #             'mindepth': 1, 
+    #             'maxdepth': self.kcountdf.at[sname, "maxdepth"],
+    #             'maxcount': self.kcountdf.at[sname, "maxcount"],
+    #             'canonical': 0,
+    #         }
+
+    #         # count non-canon kmers in sample with same kcount args except -ci1
+    #         logger.info(f"counting non-canonical kmers [{sname}]")
+    #         kco = Kcount(**kcount_params)
+    #         kco.run()
+    #         nonc_db = os.path.join(self.workdir, f"kcount_tmp-canon_{sname}")
+
+    #         # subtract counts of non-canon from canon, only keep if -ci1, 
+    #         # these are the kmers observed occurring both ways in this sample.
+    #         canon_db = self.kcountdf.at[sname, "database"]
+    #         cmd = [
+    #             KMTBIN,
+    #             "-hp",                
+    #             "simple",
+    #             canon_db, 
+    #             nonc_db, 
+    #             "counters_subtract",
+    #             self.prefix + "_tmp1",  # tmp1=kmers occurring both ways
+    #             "-ci1"
+    #         ]
+    #         logger.debug(" ".join(cmd))            
+    #         subprocess.run(cmd, check=True)
+
+    #         # set count =1 on a tmp copy of bothways kmers db
+    #         cmd = [
+    #             KMTBIN,
+    #             "-hp",                
+    #             "transform",
+    #             self.prefix + "_tmp1",
+    #             "set_counts", 
+    #             "1",
+    #             self.prefix + "_tmp2",  # tmp2=kmers w/ count=1
+    #         ]
+    #         logger.debug(" ".join(cmd))
+    #         subprocess.run(cmd, check=True)
+
+    #         # if the first sample then simply copy tmp2 to BOTHDB
+    #         if not sidx:
+    #             for suff in [".kmc_suf", ".kmc_pre"]:                
+    #                 shutil.copyfile(
+    #                     self.prefix + "_tmp2" + suff,
+    #                     bothdb + suff,
+    #                 )
+
+    #         # if not, then make copy of BOTHDB, and fill BOTHDB using kmctools
+    #         else:
+    #             for suff in [".kmc_suf", ".kmc_pre"]:                                
+    #                 shutil.copyfile(
+    #                     bothdb + suff,
+    #                     self.prefix + "_tmp3" + suff,
+    #                 )
+
+    #             # fill bothdb as the sum union of tmp2 and tmp3
+    #             cmd = [
+    #                 KMTBIN,
+    #                 "-hp",
+    #                 "simple",
+    #                 self.prefix + "_tmp2",   # kmers w/ count=1 from this samp
+    #                 self.prefix + "_tmp3",   # kmers w/ count=sum so far
+    #                 "union",
+    #                 bothdb,
+    #                 "-ci1",
+    #                 "-cs{}".format(len(self.samples) + 1),
+    #             ]
+    #             logger.debug(" ".join(cmd))
+    #             subprocess.run(cmd, check=True)              
+                
+    #         # cleanup
+    #         logger.debug(f"removing database tmp-canon_{sname}")
+
+    #     # get stats on full canonized set
+    #     sumkmers = info(self.prefix + "_canonsums")
+
+    #     # dump and calculate stats on canonsums counts
+    #     dump(self.prefix + "_canonsums", write_kmers=False)
+    #     with open(self.prefix + "_canonsums_kmers.txt", 'r') as indat:
+    #         counts = np.loadtxt(indat, dtype=np.uint16)
+    #         counts = counts / len(self.samples)
+    #         mcanon = counts.mean()
+    #         scanon = counts.std()
+    #         del counts
+
+    #     # report statistics on canonization
+    #     logger.info(
+    #         "kmers (proportion) in canonized form: "
+    #         f"mean={mcanon:.2f}; std={scanon:.2f}"
+    #     )
+
+    #     # report a warning if too few are canonized:
+    #     if mcanon < 0.1:
+    #         logger.warning(
+    #             "Very few kmers are canonized in this dataset. This may "
+    #             "indicate your data is strand-specific (e.g., ddRAD) in "
+    #             "which case you should set mincov_canon=0.0. Alternatively, "
+    #             "if WGS reads, then your data may be very low coverage."
+    #         )            
+
+    #     # filter BOTHDB to get kmers in mincanon prop. of samples (CANON)
+    #     mincanon_asint = int(np.floor(self.mincov_canon * len(self.samples)))
+    #     cmd = [
+    #         KMTBIN, 
+    #         "transform",
+    #         bothdb,
+    #         "reduce",
+    #         self.prefix + "_mincanon-filter", 
+    #         "-ci{}".format(mincanon_asint),
+    #         "-cx1000000000",
+    #         # "-cs255",        # 65K
+    #     ]
+    #     logger.debug(" ".join(cmd))
+    #     subprocess.run(cmd, check=True)              
+
+    #     # calculate and report statistics on filtered canonized set.
+    #     sumfiltkmers = info(self.prefix + "_mincanon-filter")
+    #     logger.info(f"kmers filtered by mincov_canon: {sumkmers - sumfiltkmers}")
+
+    #     # clean up tmp files
+    #     countpre = os.path.join(self.workdir, "kcount")
+    #     os.remove(countpre + "_tmp-canon.csv")
+    #     for sname in self.samples:
+    #         os.remove(countpre + "_tmp-canon_" + sname + ".kmc_pre")
+    #         os.remove(countpre + "_tmp-canon_" + sname + ".kmc_suf")            
+    #     os.remove(self.prefix + "_canonsums_kmers.txt")
+    #     for suffix in ["tmp1", "tmp2", "tmp3", "canonsums"]:
+    #         os.remove(self.prefix + "_" + suffix + ".kmc_pre")
+    #         os.remove(self.prefix + "_" + suffix + ".kmc_suf")            
+
+
+    def get_all_single_counts(self):
         """
-        Filter kmers that tend to only occur in one form or the
-        other, likely due to adapters. 
-
-        Returns:
-        None. 
-        Writes kmc database prefix=<workdir>/kfilter_{name}_canon-filtered
+        Prepare single count database of every sample which will be used
+        for presence/absence set arithmetic in filters.
         """
-
-        # database file for storing counts of kmers being present in both forms
-        bothdb = self.prefix + "_canonsums"
-
-        # iterate over samples
-        for sidx, sname in enumerate(self.samples):
-
-            # get fastq dict w/ fastqs used in kcounts
-            fastq_dict = {sname: self.kcountdf.at[sname, "fastqs"].split(",")}
-
-            # get options used in kcounts, but not mindepth (must be 1)
-            kcount_params = {
-                'workdir': self.workdir,
-                'name': 'tmp-canon',
-                'fastq_dict': fastq_dict,
-                'kmersize': self.kcountdf.at[sname, "kmersize"],
-                'subsample_reads': self.kcountdf.at[sname, "subsample_reads"],
-                'trim_reads': self.kcountdf.at[sname, "trimmed"],
-                'mindepth': 1, 
-                'maxdepth': self.kcountdf.at[sname, "maxdepth"],
-                'maxcount': self.kcountdf.at[sname, "maxcount"],
-                'canonical': 0,
-            }
-
-            # count non-canon kmers in sample with same kcount args except -ci1
-            logger.info(f"counting non-canonical kmers [{sname}]")
-            kco = Kcount(**kcount_params)
-            kco.run()
-            nonc_db = os.path.join(self.workdir, f"kcount_tmp-canon_{sname}")
-
-            # subtract counts of non-canon from canon, only keep if -ci1, 
-            # these are the kmers observed occurring both ways in this sample.
-            canon_db = self.kcountdf.at[sname, "database"]
-            cmd = [
-                KMTBIN,
-                "-hp",                
-                "simple",
-                canon_db, 
-                nonc_db, 
-                "counters_subtract",
-                self.prefix + "_tmp1",  # tmp1=kmers occurring both ways
-                "-ci1"
-            ]
-            logger.debug(" ".join(cmd))            
-            subprocess.run(cmd, check=True)
-
-            # set count =1 on a tmp copy of bothways kmers db
+        for sname in self.database:
             cmd = [
                 KMTBIN,
                 "-hp",                
                 "transform",
-                self.prefix + "_tmp1",
+                self.database[sname]['database'],
                 "set_counts", 
                 "1",
-                self.prefix + "_tmp2",  # tmp2=kmers w/ count=1
+                f"{self.prefix}_{sname}_count1",
             ]
             logger.debug(" ".join(cmd))
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd, check=True)    
 
-            # if the first sample then simply copy tmp2 to BOTHDB
-            if not sidx:
-                for suff in [".kmc_suf", ".kmc_pre"]:                
-                    shutil.copyfile(
-                        self.prefix + "_tmp2" + suff,
-                        bothdb + suff,
-                    )
 
-            # if not, then make copy of BOTHDB, and fill BOTHDB using kmctools
-            else:
-                for suff in [".kmc_suf", ".kmc_pre"]:                                
-                    shutil.copyfile(
-                        bothdb + suff,
-                        self.prefix + "_tmp3" + suff,
-                    )
-
-                # fill bothdb as the sum union of tmp2 and tmp3
-                cmd = [
-                    KMTBIN,
-                    "-hp",
-                    "simple",
-                    self.prefix + "_tmp2",   # kmers w/ count=1 from this samp
-                    self.prefix + "_tmp3",   # kmers w/ count=sum so far
-                    "union",
-                    bothdb,
-                    "-ci1",
-                    "-cs{}".format(len(self.samples) + 1),
-                ]
-                logger.debug(" ".join(cmd))
-                subprocess.run(cmd, check=True)              
-                
-            # cleanup
-            logger.debug(f"removing database tmp-canon_{sname}")
-
-        # get stats on full canonized set
-        sumkmers = info(self.prefix + "_canonsums")
-
-        # dump and calculate stats on canonsums counts
-        dump(self.prefix + "_canonsums", write_kmers=False)
-        with open(self.prefix + "_canonsums_kmers.txt", 'r') as indat:
-            counts = np.loadtxt(indat, dtype=np.uint16)
-            counts = counts / len(self.samples)
-            mcanon = counts.mean()
-            scanon = counts.std()
-            del counts
-
-        # report statistics on canonization
-        logger.info(
-            "kmers (proportion) in canonized form: "
-            f"mean={mcanon:.2f}; std={scanon:.2f}"
+    def get_union_single_counts(self):
+        """
+        Prepare summed count database from all single count databases.
+        This is the full set of observed kmers.
+        """
+        dbdict = {
+            idx: f"{self.prefix}_{sname}_count1"
+            for idx, sname in enumerate(self.database)
+        }
+        # get ALL kmers
+        self.call_complex(
+            dbdict=dbdict,
+            oper="union",
+            min_depth=1,
+            max_depth=1000000000,
+            out_name='union',
         )
 
-        # report a warning if too few are canonized:
-        if mcanon < 0.1:
-            logger.warning(
-                "Very few kmers are canonized in this dataset. This may "
-                "indicate your data is strand-specific (e.g., ddRAD) in "
-                "which case you should set mincov_canon=0.0. Alternatively, "
-                "if WGS reads, then your data may be very low coverage."
-            )            
 
-        # filter BOTHDB to get kmers in mincanon prop. of samples (CANON)
-        mincanon_asint = int(np.floor(self.mincov_canon * len(self.samples)))
+    def get_min_cov_filtered_set(self):
+        """
+        Prepare database of kmers that did NOT occur across enough
+        samples in total dataset.
+        """
+        dbdict = {
+            idx: f"{self.prefix}_{sname}_count1"
+            for idx, sname in enumerate(self.database)
+        }        
+        # get kmers NOT passing the mincov filter
+        self.call_complex(
+            dbdict=dbdict,
+            oper="union",
+            min_depth=0,
+            max_depth=max(0, self.params['min_cov'] - 1),
+            out_name='min_cov-filtered',
+        )
+
+    def get_group0_filtered_set(self):
+        """
+        Prepare database of kmers that did NOT pass the filters
+        for group 0. This usually has a low min_map and a low max_map.
+        """
+        # get the group0 samples as a numbered dict
+        dbdict = {
+            idx: f"{self.prefix}_{sname}_count1"
+            for idx, sname in enumerate(self.traits_to_samples[0])
+        }
+
+        # if EVERY kmer in this set should be filtered then use the union
+        # this is just a faster way to accomplish the same as below.
+        if self.params['max_map'][0] in [0, 1]:
+            self.call_complex(
+                dbdict=dbdict,
+                oper="union",
+                min_depth=0,
+                max_depth=100000000,
+                out_name='map-0-filtered'
+            )
+        else:
+            # get kmers occurring from 0-minmap times
+            self.call_complex(
+                dbdict=dbdict, 
+                oper="union",
+                min_depth=0,
+                max_depth=self.params['min_map'][0],
+                out_name='map-0-filter-min'
+            )
+            # get kmers occurring from maxmap->infinity times
+            self.call_complex(
+                dbdict=dbdict, 
+                oper="union",
+                min_depth=self.params['max_map'][0],
+                max_depth=100000000,
+                out_name='map-0-filter-max'
+            )
+            # get kmers in the union of the min and max filters
+            dbdict = {
+                0: f"{self.prefix}_map-0-filter-min",
+                1: f"{self.prefix}_map-0-filter-max",
+            }
+            self.call_complex(
+                dbdict=dbdict,
+                oper="union",
+                min_depth=0,
+                max_depth=2,
+                out_name='map-0-filtered'
+            )
+            # os.remove(f"{self.prefix}_map-0-filter-min")
+            # os.remove(f"{self.prefix}_map-0-filter-max")
+
+
+    def get_group1_filtered_set(self):
+        """
+        Prepare database of kmers that did NOT pass the filters
+        for group 1. This usually has a mid min_map and a high max_map.
+        """
+        # get the group1 samples as a numbered dict
+        dbdict = {
+            idx: f"{self.prefix}_{sname}_count1"
+            for idx, sname in enumerate(self.traits_to_samples[1])
+        }
+
+        # if EVERY kmer not at 100% in this set should be filtered 
+        # then use the union sum, this is faster than below.
+        if self.params['max_map'][1] == 1.0:
+            self.call_complex(
+                dbdict=dbdict,
+                oper="union",
+                min_depth=0,
+                max_depth=max(1, self.params['min_map'][1] - 1),
+                out_name='map-1-filtered'
+            )
+        else:
+            # get kmers occurring from 0-minmap times
+            self.call_complex(
+                dbdict=dbdict, 
+                oper="union",
+                min_depth=0,
+                max_depth=self.params['min_map'][1],
+                out_name='map-1-filter-min'
+            )
+            # get kmers occurring from maxmap->infinity times
+            self.call_complex(
+                dbdict=dbdict, 
+                oper="union",
+                min_depth=self.params['max_map'][1],
+                max_depth=100000000,
+                out_name='map-1-filter-max'
+            )
+            # get kmers in the union of the min and max filters
+            dbdict = {
+                0: f"{self.prefix}_map-1-filter-min",
+                1: f"{self.prefix}_map-1-filter-max",
+            }
+            self.call_complex(
+                dbdict=dbdict,
+                oper="union",
+                min_depth=0,
+                max_depth=2,
+                out_name='map-1-filtered'
+            )
+            # os.remove(f"{self.prefix}_map-0-filter-min")
+            # os.remove(f"{self.prefix}_map-0-filter-max")
+
+    def get_filtered_union(self):
+        """
+        Get the union of FILTERED kmers sets
+        """
+        dbdict = {
+            0: f"{self.prefix}_map-0-filtered",
+            1: f"{self.prefix}_map-1-filtered",
+            2: f"{self.prefix}_min_cov-filtered",            
+        }        
+        self.call_complex(
+            dbdict=dbdict,
+            oper="union",
+            min_depth=0,
+            max_depth=3,
+            out_name='filtered'
+        )
+
+    def get_kmers_passed_filters(self):
+        """
+        Get the set of kmers that are in total union of kmers but 
+        not in the union of filtered kmers.
+        """
         cmd = [
-            KMTBIN, 
-            "transform",
-            bothdb,
-            "reduce",
-            self.prefix + "_mincanon-filter", 
-            "-ci{}".format(mincanon_asint),
-            "-cx1000000000",
-            # "-cs255",        # 65K
+            KMTBIN,
+            "-hp",                
+            "simple",
+            f"{self.prefix}_union",
+            f"{self.prefix}_filtered",
+            "kmers_subtract",
+            f"{self.prefix}_passed",
+            "-ci1"
         ]
-        logger.debug(" ".join(cmd))
-        subprocess.run(cmd, check=True)              
-
-        # calculate and report statistics on filtered canonized set.
-        sumfiltkmers = info(self.prefix + "_mincanon-filter")
-        logger.info(f"kmers filtered by mincov_canon: {sumkmers - sumfiltkmers}")
-
-        # clean up tmp files
-        countpre = os.path.join(self.workdir, "kcount")
-        os.remove(countpre + "_tmp-canon.csv")
-        for sname in self.samples:
-            os.remove(countpre + "_tmp-canon_" + sname + ".kmc_pre")
-            os.remove(countpre + "_tmp-canon_" + sname + ".kmc_suf")            
-        os.remove(self.prefix + "_canonsums_kmers.txt")
-        for suffix in ["tmp1", "tmp2", "tmp3", "canonsums"]:
-            os.remove(self.prefix + "_" + suffix + ".kmc_pre")
-            os.remove(self.prefix + "_" + suffix + ".kmc_suf")            
-
+        logger.debug(" ".join(cmd))            
+        subprocess.run(cmd, check=True)
 
 
     def run(self):
@@ -447,95 +609,55 @@ class Kfilter:
         """
         # MINCANON FILTER ---------------------------------------------
         # get kmers passing the mincov_canon filter (canon-filtered)
-        self.filter_canon()
+        # self.filter_canon()
+        
+        self.get_all_single_counts()
+        self.get_union_single_counts()
+        self.get_min_cov_filtered_set()
+        self.get_group0_filtered_set()
+        self.get_group1_filtered_set()
+        self.get_filtered_union()
+        self.get_kmers_passed_filters()
 
-        # PREP for MINCOV and MAPS ------------------------------------
-        # create count=1 databases for each sample
-        # TODO: we could support a lowdisk option that overwrites the
-        # original rather than copy, as long as original is not needed.
-        for sname in self.samples:
-            cmd = [
-                KMTBIN,
-                "-hp",                
-                "transform",
-                self.kcountdf.at[sname, "database"],
-                "set_counts", 
-                "1",
-                self.prefix + f"_count1_{sname}",
-            ]
-            logger.debug(" ".join(cmd))
-            subprocess.run(cmd, check=True)
-
-        # MINCOV FILTER ----------------------------------------------
-        # get count=1 kmers for ALL samples in self.samples
-        dbdict = {
-            idx: self.prefix + f"_count1_{sname}" 
-            for idx, sname in enumerate(self.samples)
-        }
-
-        # get kmers passing the mincov filter (mincov-filtered)
-        self.call_complex(
-            dbdict=dbdict,
-            oper="union",
-            mindepth=self.mincov,
-            maxdepth=1000000000,
-            outname='mincov-filter',
+        pre = f"{self.prefix}_"
+        stats = KfilterData(
+            kmers_total=info(pre + "union"),
+            kmers_passed_total=info(pre + "passed"),
+            kmers_filtered_total=info(pre + "filtered"),
+            kmers_filtered_by_min_cov=info(pre + "min_cov-filtered"),
+            kmers_filtered_by_group0_map=info(pre + "map-0-filtered"),
+            kmers_filtered_by_group1_map=info(pre + "map-1-filtered"),
+            # kmers_filtered_by_canonized=info(),
+            database_filtered=pre + "filtered",
+            database_passed=pre + "passed",
         )
-
-        # MAP FILTERS -------------------------------------------------
-        # get kmers passing the map filters (same keys in both)
-        for group in self.minmap:
-
-            # get dict of {sname: count-1-db} for group samples
-            mask = self.phenodf[self.trait] == group
-            dbdict = {
-                idx: self.prefix + f"_count1_{sname}"
-                for idx, sname in enumerate(self.phenodf[mask].index)
-            }
-
-            # get kmers occurring >= minmap[group] in this group
-            self.call_complex(
-                dbdict=dbdict, 
-                oper="union",
-                mindepth=self.minmap[group],
-                maxdepth=self.maxmap[group],
-                outname=f'map-{group}-filter'
-            )
-
-        # INTERSECTION OF FILTERED KMERS -----------------------------
-        # get intersection of kmers passing all filters (kmers-filtered)
-        dbdict = {
-            0 : self.prefix + "_mincanon-filter",
-            1 : self.prefix + "_mincov-filter"
-        }
-        idx = 2
-        for group in self.minmap:
-            dbdict[idx] = f"{self.prefix}_map-{group}-filter"
-            idx += 1
-        logger.debug(dbdict)
-        self.call_complex(
-            dbdict=dbdict,
-            oper="intersection",
-            mindepth=1,
-            maxdepth=1000000000,
-            outname="filtered",
-        )
-
-        # TODO: log a summary of the filtered kmers
-        # ...
+        logger.info(stats.json(indent=4))
+        data = stats.dict()
+        check = data['kmers_total'] - data['kmers_filtered_total']
+        if not check == data['kmers_passed_total']:
+            raise KmerkitError(
+                "error in kmer comparisons: total - filtered != passed")
 
         # cleanup tmp files
-        os.remove(self.prefix + "_mincov-filter" + ".kmc_pre")
-        os.remove(self.prefix + "_mincov-filter" + ".kmc_suf")
-        os.remove(self.prefix + "_mincanon-filter" + ".kmc_pre")
-        os.remove(self.prefix + "_mincanon-filter" + ".kmc_suf")
-        for sname in self.samples:
-            os.remove(self.prefix + f"_count1_{sname}" + ".kmc_pre")
-            os.remove(self.prefix + f"_count1_{sname}" + ".kmc_suf")
-        for group in self.minmap:
-            os.remove(self.prefix + f"_map-{group}-filter" + ".kmc_pre")
-            os.remove(self.prefix + f"_map-{group}-filter" + ".kmc_suf")
+        fnames = [
+            "map-0-filtered", "map-0-filter-min", "map-0-filter-max",
+            "map-1-filtered", "map-1-filter-min", "map-1-filter-max",
+            "union", "min_cov",
+        ]
+        for fname in fnames:
+            fname = self.prefix + fname
+            if os.path.exists(fname):
+                os.remove(fname)
 
+        # save to JSON
+        # limit = ["name", "workdir", "versions", "kinit", "kcount"]
+        self.project['kfilter'] = KfilterBase(
+            params=self._params,
+            data=stats,
+        )
+        # logger.info(Project(**self.project).json(indent=4))
+        with open(self.json_file, 'w') as out:
+            out.write(Project(**self.project).json(indent=4))
 
 
 if __name__ == "__main__":
@@ -546,24 +668,25 @@ if __name__ == "__main__":
 
     # fake data
     PHENOS = "~/Documents/kmerkit/data/amaranths-phenos.csv"
+    traits_dict = kmerkit.utils.get_traits_dict_from_csv(PHENOS)
 
     # load database with phenotypes data
     kgp = Kfilter(
-        name="hybridus",
-        workdir="/tmp",
-        phenos=PHENOS,
-        trait="fake",
-        mincov=0.25,
-        mincov_canon=1.0, #0.25,
-        minmap={
+        json_file="/tmp/test.json",
+        traits=traits_dict,
+        min_cov=0.5,
+        min_map={
             0: 0.0,
             1: 0.5,
         },
-        maxmap={
+        max_map={
             0: 0.0,
             1: 1.0,
         },
-        #mapcov={0: (0.0, 0.0), 1: (0.5, 1.0)},
+        min_map_canon={
+            0: 0.0,
+            1: 0.5,
+        },
     )
 
     # dump the kmers to a file

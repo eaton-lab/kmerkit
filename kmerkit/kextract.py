@@ -7,22 +7,27 @@ Extract fastq reads containing target kmers to produce new
 fastq files with subset of matching read(pair)s. The fastq
 files that this is applied to do not need to have been 
 processed earlier by kcount or any other tool. The target kmers
-are identified in kgroup and/or kgwas.
+are identified in kfilter, ktree, or kgwas...
 
 TODO: option to not filter invariant kmers in Kgroup? Since excluding
 these may limit our ability to construct contigs? Not sure about this...
 
+CLI usage:
+----------
+kmerkit kextract \
+    --json /tmp/test.json \
+    --samples ... \
+    --min-kmers-per-read 5
+
 """
 
 import os
-import sys
-import glob
 import gzip
 import subprocess
-import pandas as pd
 from loguru import logger
+from kmerkit.kmctools import KMTBIN
 from kmerkit.utils import KmerkitError
-
+from kmerkit.kschema import Project, KextractData, KextractParams, KextractBase
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
@@ -36,140 +41,53 @@ class Kextract:
 
     Parameters
     ==========
-    name (str):
-        Prefix name for the fastq files that will be written. 
-        Example: <workdir>/k_extract_<name>_<sample_name>.fastq
-    workdir (str):
-        Working directory where new filtered fastq files will be written.
-        Examples: '/tmp' or '/tmp/newfastqs'.
-    fastq_path (str):
-        A wildcard selector to match one or more fastq files (can be .gz).
-        Examples: './data/*.fastq.gz'
-    group_kmers (str):
-        The prefix path for a kmc binary database with kmers.
-        Examples: '/tmp/test_group'
-    name_split (str):
-        String on which to split fastq file names to extract sample 
-        names as the first item. Common values are "_" or ".fastq". 
-    mindepth (int):
-
-
-    Attributes
-    ===========
-    statsdf (pandas.DataFrame):
-        Statistics on the number of reads per sample. The complete CSV
-        is written to <workdir>/<name>.csv.
-
+    json_file (str):
+        ...
+    db_samples (list):
+        ...
+    fastq_dict (dict):
+        ...
     """
-    def __init__(self, name, workdir, fastq_path, group_kmers, name_split="_", mindepth=1):
+    def __init__(self, json_file, db_samples=None, fastq_dict=None, min_kmers_per_read=1, keep_paired=True):
 
-        # store parameters
-        self.name = name
-        self.group_kmers = group_kmers
-        self.fastq_path = os.path.realpath(os.path.expanduser(fastq_path))
-        self.name_split = name_split
-        self.workdir = os.path.realpath(os.path.expanduser(workdir))
-        self.mindepth = mindepth
-        
+        # load project
+        self.json_file = json_file
+        self.project = Project.parse_file(json_file).dict()
+
+        # type-check params
+        self._params = KextractParams(
+            min_kmers_per_read=min_kmers_per_read,
+            keep_paired=True,
+        )
+        self.params = self._params.dict()
+
         # output prefix
-        os.makedirs(self.workdir, exist_ok=True)
-        self.prefix = os.path.join(self.workdir, f"kextract_{self.name}")
+        self.prefix = os.path.join(
+            self.project['workdir'], f"{self.project['name']}_kextract")
 
-        # get the kmctools binary for kmer set comparisons
-        self.kmctools_binary = os.path.join(sys.prefix, "bin", "kmc_tools")
-        logger.debug("using KMC binary: {}".format(self.kmctools_binary))
-
-        # attributes to be filled
-        self.files = []
-        self.sample_names = []
-        self.names_to_infiles = {}
-
-        # check files
-        self.check_database()
-        self.expand_filenames()
-        self.check_samples()
-
-        # dataframe for results
-        self.statsdf = pd.DataFrame(
-            index=self.sample_names,
-            columns=[
-                "total_reads",
-                "kmer_matched_reads", 
-                "new_fastq_path", 
-                "orig_fastq_path",
-            ],
-            dtype=int,
-            data=0,
-        )
+        # get input data from database samples AND newly entered samples.
+        self.factq_dict = {}
+        self.select_samples(db_samples, fastq_dict)
 
 
-
-    def check_database(self):
+    def select_samples(self, db_samples, fastq_dict):
         """
-        Check that a kmers database exists for this group name.
+        Checks that db_samples are in kcount.data and that fastq_dict
+        samples are not repeated in db_samples. ...
         """
-        assert os.path.exists(self.group_kmers + ".kmc_suf"), (
-            f"group_kmers database {self.group_kmers} not found"
-        )
-        assert os.path.exists(self.group_kmers + ".kmc_pre"), (
-            f"group_kmers database {self.group_kmers} not found"
-        )
+        count_set = set(self.project['kcount']['data'])
+        input_set = set(db_samples)
 
-
-
-    def expand_filenames(self):
-        """
-        Allows for selecting multiple input files using wildcard
-        operators like "./fastqs/*.fastq.gz" to select all fastq.gz
-        files in the folder fastqs.
-        """
-        if isinstance(self.fastq_path, (str, bytes)):
-            self.files = glob.glob(self.fastq_path)
-
-            # raise an exception if no files were found
-            if not any(self.files):
-                msg = f"no fastq files found at: {self.files}"
-                logger.error(msg)
-                raise KmerkitError(msg)
-
-            # sort the input files
-            self.files = sorted(self.files)
-
-        # report on found files
-        logger.debug(f"found {len(self.files)} input files")
-
-
-
-    def check_samples(self):
-        """
-        Gets sample names from the input files and checks that all 
-        have the same style of suffix (e.g., .fastq.gz).
-        """
-        # split file names to keep what comes before 'name_split'
-        sample_names = [
-            os.path.basename(i.split(self.name_split)[0]) for i in self.files
-        ]
-
-        # check that all sample_names are unique
-        if len(set(sample_names)) != len(sample_names):
-            
-            # if not, then check each occurs 2X (PE reads)
-            if not all([sample_names.count(i) == 2 for i in sample_names]):
-                raise KmerkitError(
-                    "Sample names are not unique, or in sets of 2 (PE). "
-                    "You may need to try a different name_split setting."
-                )                
-            logger.debug("detected PE data")
-
-        # store dict mapping names and files (or file pairs for PE)
-        for sname, file in zip(sample_names, self.files):
-
-            # names to input fastqs
-            if sname in self.names_to_infiles:
-                self.names_to_infiles[sname].append(file)
-            else:
-                self.names_to_infiles[sname] = [file]
- 
+        if not input_set:
+            self.fastq_dict = self.project['kinit']['data']
+        else:
+            if count_set.isdisjoint(input_set):
+                logger.warning('disjoint: {} {}'.format(count_set, input_set))
+            self.fastq_dict = {
+                i: self.project['kinit']['data'][i] for i in input_set
+            }
+        if fastq_dict:
+            self.fastq_dict.update(fastq_dict)
 
 
     def get_reads_with_kmers(self, fastq, sname, readnum):
@@ -181,20 +99,24 @@ class Kextract:
         CMD: kmc_tools filter database input.fastq -ci10 -cx100 out.fastq
         """
         # Here broken into [kmc_tools filter database <options>]
-        cmd = [self.kmctools_binary, "filter", self.group_kmers]
+        cmd = [
+            KMTBIN, 
+            "filter", 
+            str(self.project['kfilter']['data']['database_passed']),
+        ]
 
         # insert options to filter on kmers:
         # -ci<val> : exclude kmers occurring < val times.
         # -cx<val> : exclude kmers occurring > val times.
-        cmd.extend([f'-ci{self.mindepth}'])
+        # cmd.extend([f'-ci{self.params['min_depth}'])
 
         # add the input.fastq
-        cmd.extend([fastq])
+        cmd.extend([str(fastq)])
 
         # insert options to filter on reads:
         # -ci<val> : exclude reads containing < val kmers.
         # -cx<val> : exclude reads containing > val kmers
-        cmd.extend(['-ci1'])
+        cmd.extend([f"-ci{self.params['min_kmers_per_read']}"])
 
         # add the output fastq path
         cmd.extend([self.prefix + f"_{sname}_R{readnum}.fastq"])
@@ -206,93 +128,35 @@ class Kextract:
             stderr=subprocess.STDOUT, 
             stdout=subprocess.PIPE,
             check=True,
-            cwd=self.workdir,
+            # cwd=self.workdir,
         )
 
 
 
-    def get_paired_reads(self):
+    def match_paired_reads(self):
         """
         Get read pairs for all reads in which EITHER has a kmer match.
-        Current approach may be memory crushing...
+        Current approach may be memory crushing... TODO: write chunk 
+        files.
         """
-        for sname in self.statsdf.index:
+        for sname in self.fastq_dict:
             logger.debug(f"pair matching in {sname}")
 
             # get fastq file paths of original data
-            orig_fastqs = self.statsdf.at[sname, 'orig_fastq_path']
-            old1, old2 = orig_fastqs.split(",")
-
-            # get fastq file paths of new filtered data
-            new_fastqs = self.statsdf.at[sname, 'new_fastq_path']
-            new1, new2 = new_fastqs.split(",")
+            old_fastqs = [str(i) for i in self.fastq_dict[sname]]
+            new_fastqs = [
+                f"{self.prefix}_{sname}_R1.fastq",
+                f"{self.prefix}_{sname}_R2.fastq",
+            ]
 
             # -----------------------------------------------------
             # create set of all read names in new kmer-matched file
-            set1 = set()
-            readio = open(new1, 'r')
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    set1.add(header)
-                except StopIteration:
-                    break
-            readio.close()
-
-            # find lines with same read names in orig fastq file
-            lines1 = set()
-            readio = (
-                gzip.open(old1, 'rt') if old1.endswith('.gz') 
-                else open(old1, 'r')
-            )
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            idx = 0
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    if header in set1:
-                        lines1.add(idx)
-                    idx += 1
-                except StopIteration:
-                    break
-            readio.close()
+            set1 = fastq_to_read_names(new_fastqs[0])
+            lines1 = fastq_to_line_nos(old_fastqs[0], set1)
             del set1
 
-            # ---------------------------------------------------
-            # create set of all read names in read2s
-            set2 = set()
-            readio = open(new2, 'r')
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    set2.add(header)
-                except StopIteration:
-                    break
-            readio.close()
-
-            # find lines containing read names in matched file
-            lines2 = set()
-            readio = (
-                gzip.open(old2, 'rt') if old2.endswith('.gz') 
-                else open(old2, 'r')
-            )
-            matched = iter(readio)
-            quart = zip(matched, matched, matched, matched)
-            idx = 0
-            while 1:
-                try:
-                    header = next(quart)[0].strip()
-                    if header in set2:
-                        lines2.add(idx)
-                    idx += 1
-                except StopIteration:
-                    break
-            readio.close()
+            set2 = fastq_to_read_names(new_fastqs[1])
+            lines2 = fastq_to_line_nos(old_fastqs[1], set2)
             del set2
 
             # -------------------------------------------------------
@@ -307,7 +171,7 @@ class Kextract:
 
             # overwrite new read files with reads from original files
             # at all line indices in lidxs.
-            for new, old in [(new1, old1), (new2, old2)]:
+            for new, old in zip(new_fastqs, old_fastqs):
 
                 # open writer 
                 with open(new, 'w') as out:
@@ -344,16 +208,20 @@ class Kextract:
                         out.write("".join(chunk))
                     readio.close()
 
+            # return the number of paired reads
+            return len(lidxs), new_fastqs
+
 
 
     def run(self):
         """
         Iterate over all fastq files to call filter funcs.
         """
-        for sname in self.names_to_infiles:        
+        stats = {}
+        for sname in self.fastq_dict:
 
             # get fastq filename
-            fastqs = self.names_to_infiles[sname]
+            fastqs = self.fastq_dict[sname]
 
             # accommodates paired reads:
             for readnum, fastq in enumerate(fastqs):
@@ -361,74 +229,92 @@ class Kextract:
                 # call kmc_tools filter, writes new fastq to prefix
                 self.get_reads_with_kmers(fastq, sname, readnum + 1)
 
-            # store file paths
-            self.statsdf.loc[sname, "orig_fastq_path"] = ",".join([
-                i for i in fastqs if i])
-            self.statsdf.loc[sname, "new_fastq_path"] = ",".join([
-                self.prefix + f"_{sname}_R{readnum + 1}.fastq"
-                for readnum, fastq in enumerate(fastqs)
-            ])
+            # get read pairs where either contains the kmer
+            if self.params['keep_paired']:
+                nreads, data_out = self.match_paired_reads()
+            # else:
+                # nreads = self.concat_reads()
 
-        # get read pairs where either contains the kmer
-        self.get_paired_reads()
+            # store results
+            stats[sname] = KextractData(
+                data_in=fastqs,
+                data_out=data_out,
+                kmer_matched_reads=nreads
+            )
 
-        # get final stats
-        #self.count_kmer_reads()
-
-
-
-    def count_kmer_reads(self):
-        """
-        Test file is not fetched from statsdf...
-        """
-        for sname in self.names_to_infiles:
-
-            # get path to the test fastq file
-            # ...
-
-            # count number of matched kmers
-            with open(self.statsdf.at[sname, "new_fastq_path"], 'r') as indat:
-                nmatched = sum(1 for i in indat)
-                self.statsdf.loc[sname, "kmer_matched_reads"] = nmatched
-
-            # get nreads in the kmer-matched file
-            with open(self.prefix + f"_{sname}.fastq", 'r') as indat:
-                nreads = sum(1 for i in indat) / 4
-                self.statsdf.loc[sname, "kmer_matched_reads"] = nreads
-
-            # get nreads in the test fastq file
-            if fastq.endswith('.gz'):               
-                with gzip.open(fastq, 'r') as indat:
-                    nreads = sum(1 for i in indat) / 4
-            else:
-                with gzip.open(fastq, 'r') as indat:
-                    nreads = sum(1 for i in indat) / 4                    
-            self.statsdf.loc[sname, "total_reads"] = nreads
+        # save to project
+        self.project['kextract'] = KextractBase(
+            params=self._params,
+            data=stats,
+        )
+        with open(self.json_file, 'w') as out:
+            out.write(Project(**self.project).json(indent=4))
 
 
-            # logger report
-            logger.debug(f"found {nmatched} matching reads in sample {sname}")
+
+
+def fastq_to_read_names(fastq):
+    """
+    Extracts the fastq read header from all reads as a set.
+    Used in match_paired_reads()
+    """
+    name_set = set()
+    with open(fastq, 'r') as readio:
+        matched = iter(readio)
+        quart = zip(matched, matched, matched, matched)
+        while 1:
+            try:
+                header = next(quart)[0].strip()
+                name_set.add(header)
+            except StopIteration:
+                break
+    return name_set
+
+
+def fastq_to_line_nos(fastq, name_set):
+    """
+    Extract line nos of headers matching to a target name set.
+    Used in match_paired_reads()    
+    """
+    # find lines with same read names in orig fastq file
+    line_nos = set()
+    readio = (
+        gzip.open(fastq, 'rt') if fastq.endswith('.gz') else open(fastq, 'r')
+    )
+    matched = iter(readio)
+    quart = zip(matched, matched, matched, matched)
+    idx = 0
+    while 1:
+        try:
+            header = next(quart)[0].strip()
+            if header in name_set:
+                line_nos.add(idx)
+                idx += 1
+        except StopIteration:
+            break
+    readio.close()
+    return line_nos
 
 
 
 if __name__ == "__main__":
 
-    # first run: python3 kcount.py; python3 kgroup.py
-    # DATA
-    # FASTQS = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
-    FASTQS = "~/Documents/kmerkit/data/amaranths/hybridus_*.fastq.gz"
-
     import kmerkit
     kmerkit.set_loglevel("DEBUG")
 
+    # DATA
+    # FASTQS = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
+    JSON = "/tmp/test.json"
+    FASTQS = "~/Documents/kmerkit/data/amaranths/hybridus_*.fastq.gz"
+    # kmerkit.utils.get_fastq_dict_from_
+
     # set up filter tool
     kfilt = Kextract(
-        name="hybridus",
-        workdir="/tmp",
-        fastq_path=FASTQS,
-        name_split="_R",
-        group_kmers="/tmp/kfilter_hybridus_filtered",
-        mindepth=1,
+        json_file=JSON,
+        db_samples=["hybridus_SLH_AL_1060"],
+        # database_samples=[],
+        fastq_dict=None, #FASTQS,
+        min_kmers_per_read=10,
     )
     kfilt.run()
-    print(kfilt.statsdf.T)
+    # print(kfilt.statsdf.T)

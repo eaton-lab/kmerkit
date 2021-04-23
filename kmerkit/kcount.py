@@ -14,22 +14,19 @@ Notes:
       this will fail if both forms occur at maxcount (e.g., 255), safer
       to just enforce larger maxcount (65535) by default, and eat the 
       larger disk usage. Test on a superlarge dset before deciding...
+
     - maxcount could also matter for count=1 with regard to nsamples in 
       kfilter, another reason to just set it higher...
-
-TODO:
-    - t x = option to limit threads
 """
 
 import os
 import json
 import subprocess
-import pandas as pd
 from loguru import logger
 
 from kmerkit.kmctools import KMCBIN
-from kmerkit.read_trimming import ReadTrimming
-from kmerkit.utils import get_fastq_dict_from_path
+from kmerkit.utils import get_fastq_dict_from_path, KmerkitError
+from kmerkit.kschema import KcountBase, KcountData, KcountParams, Project
 
 
 class Kcount:
@@ -38,139 +35,55 @@ class Kcount:
 
     Parameters:
     ===========
-    name (str):
-        A name prefix to be used for output files.
-    workdir (str):
-        A directory for storing output and temporary files.
-    kmersize (int):
+    json (str):
+        Path to a kmerkit JSON project file.
+    kmer_size (int):
         The size of kmers to be counted from reads.
-    fastq_dict: dict:
-        A dictionary mapping sample names to a list of fastq files.
-    trim_reads (bool):
-        Reads are trimmed for adapters and low quality bases by 'fastp'
-        prior to counting kmers.
-    subsample_reads (int):
-        Subsample reads from each sample to include at most N reads
-        (or PE readpairs). This can be useful for samples with variable 
-        coverage.
-    mindepth (int):
+    min_depth (int):
         Minimum depth below which kmers will be excluded. Default=1.
-    maxdepth (int):
+    max_depth (int):
         Maximum depth above which kmers will be excluded. Default=1e9.
-    maxcount (int):
+    max_count (int):
         Maximum value that will be recorded for a kmer depth. Default=255.
     canonical (bool):
         Count kmers in canonical form (both ways). Default=True.
     """
-    def __init__(
-        self, 
-        name, 
-        workdir, 
-        kmersize, 
-        fastq_dict,
-        trim_reads=False, 
-        subsample_reads=None,
-        mindepth=1,
-        maxdepth=1e9,
-        maxcount=65530,
-        canonical=True,
-        ):
+    def __init__(self, json_file, kmer_size, min_depth, max_depth, max_count, canonical):
 
-        # store input params
-        self.name = name
-        self.fastq_dict = fastq_dict
-        self.workdir = os.path.realpath(os.path.expanduser(workdir))
-        self.kmersize = kmersize
-        self.trim_reads = trim_reads
-        self.subsample_reads = (int(subsample_reads) if subsample_reads else 0)
-        self.mindepth = int(mindepth)
-        self.maxdepth = int(maxdepth)
-        self.maxcount = int(maxcount)
-        self.canonical = canonical
+        # load project json file to get sample paths
+        self.json_file = json_file
+        self.project = Project.parse_file(json_file).dict()
+        self.fastq_dict = self.project['kinit']['data']
+        self.samples = {}
 
-        # output file prefix
-        self.prefix = os.path.join(self.workdir, f"kcount_{self.name}")
+        # use Serializable schema to perform type checking
+        self.params = KcountParams(
+            kmer_size=kmer_size, 
+            min_depth=min_depth,
+            max_depth=max_depth,
+            max_count=max_count,
+            canonical=canonical,
+        ).dict()
+
+        # prefix for output files
+        self.prefix = os.path.join(
+            self.project['workdir'], f"{self.project['name']}_kcount")
 
         # report which KMC will be used. Same will be used for all.
         logger.info(f"KMC bin: {KMCBIN}")
 
-        # constructs statsdf and names_to_files
-        self.check_fastq_dict()
-
-        # dataframe with sample names and column names
-        self.statsdf = pd.DataFrame(
-            index=sorted(self.fastq_dict),
-            columns=[
-                'reads_total', 
-                'reads_passed_trimming',
-                'kmers_total', 
-                'kmers_unique',
-                'kmers_unique_counted',
-                'kmers_below_thresh', 
-                'kmers_above_thresh',
-                'database',
-                'fastqs'
-            ],
-            data=0,
-            dtype=int,
-        )
-
-        # add additional columns of uniform values w/ param settings
-        self.statsdf['kmersize'] = int(self.kmersize)
-        self.statsdf['trimmed'] = int(self.trim_reads)
-        self.statsdf['subsample_reads'] = self.subsample_reads
-        self.statsdf['mindepth'] = self.mindepth
-        self.statsdf['maxdepth'] = self.maxdepth
-        self.statsdf['maxcount'] = self.maxcount
-        self.statsdf['canonical'] = int(self.canonical)
 
 
-
-    def check_fastq_dict(self):
-        """
-        Expand file paths and check that they exist. Also,
-        """
-        okeys = list(self.fastq_dict.keys())
-        for okey in okeys:
-            val = self.fastq_dict[okey]
-
-            # get new key without any strange characters
-            newkey = (okey
-                .replace("-", "_")
-                .replace("@", "_")
-                .replace(" ", "_")
-            )
-
-            # check type of val
-            assert isinstance(val, list), (
-                "Filepaths in fastq_dict must be stored as list objects.\n"
-                "Example: fdict = {'a': ['a_R1.fastq', 'a_R2.fastq'], 'b'...}"
-            )
-
-            # expand each path in val and check exists
-            file_list = []
-            for path in val:
-                fullpath = os.path.realpath(os.path.expanduser(path))
-                assert os.path.exists(fullpath), (
-                    f"file {fullpath} in fastq_dict cannot be found.")
-                file_list.append(fullpath)
-
-            # remove old key (in case of strange characters) and store new.
-            del self.fastq_dict[okey]
-            self.fastq_dict[newkey] = sorted(file_list)
-
-
-
-    def call_kmc_count(self, files, sname):
+    def call_kmc_count(self, files, sname, threads=4):
         """
         Calls kmc to count kmers.
           files: original or trimmed fastq files
           sname: sample name
         """
         # to support SE or PE data we list input files in a file
-        input_file = self.prefix + ".tmp"
+        input_file = f"{self.prefix}_{os.getpid()}.tmp"
         with open(input_file, 'w') as out:
-            out.write("\n".join(i for i in files if i))
+            out.write("\n".join(str(i) for i in files if i))
 
         # output file path
         output_file = f"{self.prefix}_{sname}"
@@ -178,19 +91,19 @@ class Kcount:
         # create command: 'kmc -k17 @filelist outname workdir'
         cmd = [
             KMCBIN,
-            "-ci{}".format(self.mindepth),
-            "-cx{}".format(self.maxdepth),
-            "-cs{}".format(self.maxcount),
-            "-k{}".format(self.kmersize),
+            "-ci{}".format(self.params['min_depth']),
+            "-cx{}".format(self.params['max_depth']),
+            "-cs{}".format(self.params['max_count']),
+            "-k{}".format(self.params['kmer_size']),
             "-j{}".format(output_file + "-stats.json"),
-            "-t{}".format(20),
+            "-t{}".format(threads),
             "@" + input_file,
             output_file,
-            self.workdir,
+            self.project['workdir'],
         ]
 
         # insert canonical option (TURNS OFF)
-        if not self.canonical:
+        if not self.params['canonical']:
             cmd.insert(4, "-b")
 
         # call subprocess on the command
@@ -200,7 +113,7 @@ class Kcount:
             stderr=subprocess.STDOUT, 
             stdout=subprocess.PIPE,
             check=True,
-            cwd=self.workdir,
+            cwd=self.project['workdir'],
         )
 
         # remove input file list
@@ -209,92 +122,66 @@ class Kcount:
         # parse stats from json file
         with open(output_file + "-stats.json", 'r') as indata:
             kdata = json.loads(indata.read())
+        os.remove(output_file + "-stats.json")
         return kdata["Stats"]
 
 
-
-    def kmer_stats(self, ofiles, sname, kmerstats, trimstats):
+    def check_overwrite(self):
         """
-        Store stats to dataframe. KMC has irregular use of -, _, ' ' 
-        separators in keys here, so there is worry that this could
-        break if they fix this in the future, so I replace all with "-"
+        Prevent overwriting future files.
         """
-        # replace irregular separators and set values to ints
-        kdict = {
-            key.replace("_", "-").replace(" ", "-").strip("#"): int(val)
-            for key, val in kmerstats.items()
-        }
-
-        # enter to dataframe        
-        self.statsdf.loc[sname, "kmers_total"] = kdict["Total-no.-of-k-mers"]
-        self.statsdf.loc[sname, "kmers_unique"] = kdict["Unique-k-mers"]
-        self.statsdf.loc[sname, "kmers_unique_counted"] = kdict["Unique-counted-k-mers"]
-        self.statsdf.loc[sname, "reads_total"] = kdict["Total-reads"]
-        self.statsdf.loc[sname, "kmers_above_thresh"] = kdict["k-mers-above-max-threshold"]
-        self.statsdf.loc[sname, "kmers_below_thresh"] = kdict["k-mers-below-min-threshold"]
-
-        # save kmc db prefix path and original fastq names
-        self.statsdf.loc[sname, "database"] = f"{self.prefix}_{sname}"
-        self.statsdf.loc[sname, "fastqs"] = ",".join(ofiles)
-        # os.path.basename(i) for i in ofiles if i]
-
-        # store trimming info
-        if not trimstats:
-            self.statsdf.loc[sname, "reads_passed_trimming"] = self.statsdf.loc[sname, "reads_total"]
-        else:
-            self.statsdf.loc[sname, "reads_total"] = trimstats[0]
-            self.statsdf.loc[sname, "reads_passed_trimming"] = trimstats[1]
-
-        # correct read counts for PE double-counting
-        if len(self.fastq_dict[sname]) > 1:
-            self.statsdf.loc[sname, "reads_total"] = int(
-                self.statsdf.loc[sname, "reads_total"] / 2)
-            self.statsdf.loc[sname, "reads_passed_trimming"] = int(
-                self.statsdf.loc[sname, "reads_passed_trimming"] / 2)
-
-        # save database csv to the workdir
-        path = os.path.join(self.prefix + ".csv")
-        self.statsdf.to_csv(path)
-        logger.info(f"new database: {self.name}_{sname}")
-
-        # remove stats file
-        os.remove(f"{self.prefix}_{sname}-stats.json")
+        next_steps = [
+            self.project.get("kfilter"),
+            self.project.get("ktree"),
+            self.project.get("kmatrix"),
+        ]
+        if any(next_steps):
+            logger.warning(
+                "\nRunning kcount will overwrite previous kmer-counting "
+                "results and remove references to any existing downstream "
+                "analyses on these files. You must use the force argument "
+                "to confirm this action. An alternative recommended workflow "
+                "is to use the 'branch' option to create a separate new named "
+                "project (new JSON file) from which to start this analysis "
+                "without overwriting your previous results"
+            )
+            raise KmerkitError("Preventing data overwrite")
 
 
-
-    def run(self):
+    def run(self, threads=4, force=False):
         """
         Calls kmc count on all files
         """
+        # check for current step
+        if not force:
+            self.check_overwrite()
+
+        # iterate over samples one at a time.
         for sname in self.fastq_dict:
 
-            # get files
-            files = ofiles = self.fastq_dict[sname]
-            read1 = files[0]
-            read2 = (None if len(files) == 1 else files[1])
-
-            # trim reads --------------------------------      
-            trimstats = None
-            if self.trim_reads:
-                tool = ReadTrimming(
-                    read1=read1, 
-                    read2=read2,
-                    workdir=self.workdir,
-                    subsample=self.subsample_reads,
-                )
-                tool.trim_reads()
-                trimstats = tool.parse_stats_from_json()
-                files = [tool.tmp1, tool.tmp2]
-
             # count kmers -------------------------------
-            kmerstats = self.call_kmc_count(files, sname)
+            indata = self.fastq_dict[sname]
+            kmcstats = self.call_kmc_count(indata, sname, threads)
 
-            # store results to dataframe
-            self.kmer_stats(ofiles, sname, kmerstats, trimstats)
+            # convert kmc stats to KcountData() object to store result
+            self.samples[sname] = KcountData(**{
+                'reads_total': kmcstats["#Total_reads"],
+                'kmers_total': kmcstats["#Total no. of k-mers"],
+                'kmers_unique': kmcstats["#Unique_k-mers"],
+                'kmers_unique_counted': kmcstats["#Unique_counted_k-mers"],
+                'kmers_below_threshold': kmcstats["#k-mers_below_min_threshold"],
+                'kmers_above_threshold': kmcstats["#k-mers_above_max_threshold"],
+                'database': f"{self.prefix}_{sname}"
+            })
 
-            # cleanup tmp files from read trimming
-            if self.trim_reads:
-                tool.cleanup()
+        # save to JSON
+        self.project['kcount'] = KcountBase(
+            params=KcountParams(**self.params),
+            data=self.samples,
+        )
+        project = Project(**self.project)
+        with open(self.json_file, 'w') as out:
+            out.write(project.json(indent=4))
 
 
 
@@ -303,29 +190,27 @@ class Kcount:
 
 if __name__ == "__main__":
 
-    # test dataset w/ R1 and R2 files
+
+    import kmerkit
+    kmerkit.set_loglevel("DEBUG")
+
     # FILES = "~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz"
     FILES = "~/Documents/kmerkit/data/amaranths/hybridus_*.fastq.gz"
     FASTQ_DICT = get_fastq_dict_from_path(FILES, "_R")
 
-    import kmerkit
-    kmerkit.set_loglevel("INFO")
+    # init a project
+    kmerkit.init_project('test', '/tmp', FASTQ_DICT, force=True)
 
-    # example
-    counter = Kcount(
-        name="hybridus", 
-        workdir="/tmp/", 
-        fastq_dict=FASTQ_DICT,
-        kmersize=31,
-        trim_reads=True,
-        subsample_reads=5e5,
-        mindepth=1,
-        maxdepth=1e9,
-        maxcount=255,
+    # load project json and count kmers
+    kco = Kcount(
+        "/tmp/test.json",        
+        kmer_size=35,
+        min_depth=1,
+        max_depth=1e9,
+        max_count=255,
         canonical=True,
     )
-    # print(counter.statsdf.T)
-    counter.run()
+    kco.run(threads=4)
 
     # statdf is saved to the workdir as a CSV
     # print(counter.statsdf.T)

@@ -8,6 +8,7 @@ import os
 import sys
 import glob
 from copy import copy
+import pandas as pd
 from loguru import logger
 
 
@@ -97,6 +98,33 @@ class Group:
             return self.ustring
         return self.istring
 
+
+
+def get_traits_dict_from_csv(csv_file, **kwargs):
+    r"""
+    Parses a tab or whitespace delimited file to create a dictionary
+    mapping trait values to a list of samples names.
+
+    names    trait
+    A          0
+    B          0
+    C          1
+    ...        ...
+
+    Kwargs supports any arguments to the pandas.read_csv() function
+    to parse the CSV file, such as sep='\t'. The first and second 
+    columns of the file should the sample names and trait values, 
+    respectively. The first row should include a header, even though
+    the column names will not be used.
+    """
+    data = pd.read_csv(csv_file, **kwargs)
+    data.iloc[:, 1] = data.iloc[:, 1].astype(int)
+    groups = data.groupby(data.columns[1])
+    return {i: j.iloc[:, 0].tolist() for i,j in groups}
+    # traits = {}
+    # traits[0] = groups.get_group(0).iloc[:, 0].tolist()
+    # traits[1] = groups.get_group(1).iloc[:, 0].tolist()
+    # return traits
 
 
 

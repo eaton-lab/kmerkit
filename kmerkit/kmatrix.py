@@ -3,26 +3,44 @@
 """
 Kcounts -> Kfilter -> Kmatrix
 
-Takes kmer count databases for N samples from Kcounts and the set 
-of filtered kmers from Kfilter and constructs a genotype matrix of 
-(nsamples, nkmers) of either count or binary data. It removes any
-columns of the matrix that are invariant or empty (although these 
-are usually already removed in Kfilter).
+Takes a kmer count database from Kfilter and generates either a binary
+matrix, or a count matrix, as a sample x kmer matrix.
+
+Kmatrix removes any columns of the matrix that are invariant or empty 
+(although these are usually already removed in Kfilter).
+
+TODO: Think more about the intended goal/endpoint before developing 
+further..., how often will kfilter,ktree, or kcount come before this
+step?
+
+
+Binary matrix (for gemma, for sklearn, look up proper input)
+-------------
+Apple   0000000
+Banana  0000000
+Cat     0011100
+Dog     1111111...
+
+Count matrix (for logistic regression or sklearn, should be normalized)
+-------------
+Apple,Banana,Cat,Dog
+10,4,3,10
+5,3,2,1
+0,0,10,10
+0,0,10,10
+...
 
 TODO: 
     - support count (non-binary) matrix
-    - should min and max depths be implemented again here?
-
 """
 
 import os
 import subprocess
 import numpy as np
-import pandas as pd
 from loguru import logger
 from kmerkit.utils import KmerkitError, Group, COMPLEX
 from kmerkit.kmctools import KMTBIN, info, dump
-
+from kmerkit.kschema import Project, KmatrixParams, KmatrixData, KmatrixBase
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
@@ -39,16 +57,11 @@ class Kmatrix:
 
     Parameters
     ==========
-    name (str):
-        Name prefix for output files, should be same as used in kcount.
-    workdir (str):
-        Working directory containing kmer database files from kcount,
-        and the location where new outputs will be saved.
-    mindepth (int):
+    json_file (str):
+        Path to a kmerkit project JSON file.
+    min_depth (int):
         ...
-    maxdepth (int):
-        ...
-    maxcount (int):
+    max_depth (int):
         ...
     counts (bool):
         Fill the genotype matrix with kmer counts, w/ upper limit of 
@@ -63,27 +76,24 @@ class Kmatrix:
     """
     def __init__(
         self, 
-        name, 
-        workdir, 
-        mindepth=1, 
-        maxdepth=1e9, 
-        maxcount=1024, 
+        json_file,
         counts=False, 
-        normalize=True,
-        subsample=None,
+        normalize=False,
+        condense=False,
         ):
 
-        # store params
-        self.name = name
-        self.workdir = os.path.realpath(os.path.expanduser(workdir))
-        self.prefix = os.path.join(self.workdir, f"kmatrix_{self.name}")
-        self.kcpath = os.path.join(self.workdir, f"kcount_{name}.csv")
-        self.mindepth = int(mindepth)
-        self.maxdepth = int(maxdepth)
-        self.maxcount = int(maxcount)
-        self.counts = counts
-        self.normalize = normalize
-        self.subsample = subsample
+        self.project = Project.parse_file(json_file).dict()
+
+        self.prefix = os.path.join(
+            self.project['workdir'], f"{self.project['name']}_kmatrix")
+
+        self.params = KmatrixParams(
+            min_depth=min_depth,
+            max_depth=max_depth,
+            counts=counts,
+            normalize=normalize,
+            subsample=subsample,
+        )
 
         # paths to files 
         self.statsdf = ""
@@ -101,13 +111,6 @@ class Kmatrix:
         self.nkmers = 0
         self.matrix = None  # np.zeros((nsamples, nkmers))
 
-
-
-    def load_count_csv(self):
-        """
-        load CSV results from kcount to get sample names and stats
-        """
-        self.statsdf = pd.read_csv(self.kcpath, index_col=0)
 
 
     def get_complex_input(self, double=False):
@@ -192,7 +195,6 @@ class Kmatrix:
         # logger.warning(out.stdout.decode())
 
 
-
     def fill_count_mat(self):
         """
         For each sample check all kmers against var_kmers and fill 1 
@@ -206,7 +208,6 @@ class Kmatrix:
         """
         for sidx, sname in enumerate(self.subsample):
             pass
-
 
 
     def fill_binary_mat(self):
