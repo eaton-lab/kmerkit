@@ -110,7 +110,7 @@ kmerkit trim --json /tmp/dioecy.json
 ```
 
 ```bash
-kmerkit stats --json /tmp/dioecy.json --module trim
+kmerkit stats --json /tmp/dioecy.json trim
 ```
 
 ??? tip "kmerkit stats output"
@@ -130,15 +130,13 @@ kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 --threads 20
 
 
 ```bash
-kmerkit stats --json /tmp/dioecy.json --module count
+kmerkit stats --json /tmp/dioecy.json count
 ```
 
 ??? tip "kmerkit stats output"
 	```console
 	...
 	```
-
-
 
 ### Filter kmers
 Apply filters to identify target kmers that are enriched in one group of 
@@ -153,21 +151,31 @@ names directly using the `-0` and `-1` options to assign to their respective
 groups. The min_map and max_map entries each take two ordered values, assigned
 to group 0 and 1, respectively.
 
-```console
+```bash
 kmerkit filter \
 	--json /tmp/dioecy.json \
 	-0 ERR4161581 \
 	-0 ERR4161582 \
 	-1 ERR4161583 \
 	-1 ERR4161584 \
-	--minmap 0.0 0.9 \            # kmer-freq>=0.9 of samples when trait=1
-	--maxmap 0.1 1.0              # kmer-freq<=0.1 of samples when trait=0
+	--min_map 0.0 0.9 \
+	--max_map 0.1 1.0  
 ```
 
-```console
+<!-- Will probably switch to this...
+```bash
+# Alt idea that would allow >2 groups...
+kmerkit filter \
+	--json /tmp/dioecy.json \
+	--group 0 0.0 0.1 'ERR4161581' 'ERR4161582' \
+	--group 1 0.5 1.0 'ERR416158[3-4]'   # allows for regex name selectors
+```
+ -->
+
+```bash
 kmerkit stats -j /tmp/dioecy.json filter
 ```
-??? abstract "kmerkit filter results"
+??? tip "kmerkit filter results"
 	```console
 	...
 	```
@@ -180,14 +188,14 @@ can enter new fastq files to extract data from, or enter the names of samples
 already in the project database, which will use the (trimmed) fastq data files
 referenced in the JSON file. Here I select the two male populations.
 
-```console
+```bash
 kmerkit extract \
 	--json /tmp/dioecy.json \
 	--min-kmers-per-read 5 \
-	ERR4161583 ERR4161584
+	'ERR4161583' 'ERR4161584'
 ```
 
-??? abstract "kmerkit logged output"
+??? tip "kmerkit stats output"
 	```console
 	...
 	```
@@ -199,8 +207,8 @@ for each sample (or for all samples pooled together) using the `assemble`
 module. Here we use the default assembler, spades. This creates a number of
 output files in the workdir, which can be summarized with `stats`. 
 
-```console
-kmerkit assemble --json /tmp/dioecy.json
+```bash
+kmerkit assemble --json /tmp/dioecy.json ...
 ```
 
 The main result of Neves et al. was the identification of an approximately

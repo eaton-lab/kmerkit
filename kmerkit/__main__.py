@@ -204,6 +204,14 @@ def count(
         typer.Abort(exc)
 
 
+# @app.command()
+# def group(
+#     json_file: Path = typer.Option(..., '-j', '--json'),
+#     group: List[List[str]] = typer.Option(None),
+#     ):
+#     print(group)
+
+
 
 @app.command()
 def filter(
