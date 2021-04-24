@@ -134,13 +134,13 @@ class ReadTrimming:
         self.tmp1 = os.path.join(
             workdir, 
             f'trimmed_{os.path.basename(read1)}'
-        ).strip(".gz")
+        ).strip(".gz") + ".gz"
         self.tmp2 = (
             os.path.join(
                 workdir, 
                 f'trimmed_{os.path.basename(read2)}') if read2
             else None
-        ).strip(".gz")
+        ).strip(".gz") + ".gz"
 
         # paths to stats files
         self.json = os.path.join(workdir, f'{basename}.json')
