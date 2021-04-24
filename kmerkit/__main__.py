@@ -100,27 +100,14 @@ def stats(
 
 @app.command(context_settings=CONTEXT_SETTINGS)
 def init(
-    name: str = typer.Option(
-        "test",
-        "-n", "--name",
-        help="Prefix for output files.",
-        ),
-    workdir: str = typer.Option(
-        tempfile.gettempdir(), 
-        "-w", "--workdir",
-        help="Dir name for output files.",
-        ),
-
-    force: bool = typer.Option(
-        False,
-        help="force overwrite of existing JSON file."
-        ),
-    # sample: Optional[List[str]] = typer.Option(None),
-    delim: str = typer.Option("_R"),
-    loglevel: LogLevel = LogLevel.INFO,
+    name: str = typer.Option("test", "-n", "--name", help="Project name prefix"),
+    workdir: str = typer.Option(tempfile.gettempdir(), "-w", "--workdir", help="Project directory"),
+    delim: str = typer.Option("_R", help="sample name delimiter"),
+    loglevel: LogLevel = typer.Option(LogLevel.INFO, help="logging level"),
+    force: bool = typer.Option(False, help="overwrite existing"),
     data: List[Path] = typer.Argument(...,
         show_default=False,
-        exists=True,
+        exists=True,          # <- prob should be false for moving json files.
         dir_okay=True,
         file_okay=True,
         resolve_path=False,
@@ -159,10 +146,12 @@ def count(
     kmer_size: int = typer.Option(17, min=2),
     min_depth: int = typer.Option(1, min=1),
     max_depth: int = typer.Option(int(1e9), min=1),
-    max_count: int = typer.Option(255, min=1),
+    max_count: int = typer.Option(65535, min=255),
     canonical: bool = typer.Option(True),
-    threads: int = typer.Option(2),
-    force: bool = typer.Option(False, help="overwrite existing results."),
+    workers: int = typer.Option(1, help="N worker processes"),
+    threads: int = typer.Option(None, help="N threads per worker"),
+    force: bool = typer.Option(False, help="overwrite existing"),
+    max_ram_per_worker: int = typer.Option(12, help="max RAM in Gb"),
     loglevel: LogLevel = LogLevel.INFO,
     ):
     """
@@ -199,7 +188,12 @@ def count(
     )
     # print(counter.statsdf.T)
     try:
-        counter.run(threads=threads, force=force)
+        counter.run(
+            threads=threads, 
+            workers=workers, 
+            force=force, 
+            max_ram=max_ram_per_worker,
+        )
     except KmerkitError as exc:
         typer.Abort(exc)
 
@@ -221,7 +215,7 @@ def filter(
     min_map: Tuple[float,float] = typer.Option((0.0, 0.1)),
     max_map: Tuple[float,float] = typer.Option((0.1, 1.0)),
     loglevel: LogLevel = LogLevel.INFO,
-    force: bool = typer.Option(False, help="overwrite existing results."),
+    force: bool = typer.Option(False, help="overwrite existing"),
     # min_map_canon
     ):
     """
@@ -262,7 +256,7 @@ def extract(
     min_kmers_per_read: int = typer.Option(1),
     keep_paired: bool = typer.Option(True),
     loglevel: LogLevel = LogLevel.INFO,
-    force: bool = typer.Option(False, help="overwrite existing results."),  
+    force: bool = typer.Option(False, help="overwrite existing"),  
     samples: List[str] = typer.Argument(None),
     ):
     """
@@ -302,8 +296,8 @@ def extract(
 def trim(
     json_file: Path = typer.Option(..., "-j", "--json"),
     subsample: int = typer.Option(None, help="subsample to N reads"),
-    cores: int = typer.Option(0, help="N parallel cores (0=all)"),
-    force: bool = typer.Option(False, help="overwrite existing files"),
+    workers: int = typer.Option(None, help="N worker processes"),
+    force: bool = typer.Option(False, help="overwrite existing"),
     loglevel: LogLevel = LogLevel.INFO,    
     ):
     """
@@ -320,6 +314,6 @@ def trim(
 
     try:
         ktr = Ktrim(json_file=json_file, subsample=subsample)
-        ktr.run(force=force, cores=cores)
+        ktr.run(force=force, workers=workers)
     except KmerkitError:
         typer.Abort()
