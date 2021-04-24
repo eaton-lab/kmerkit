@@ -5,6 +5,8 @@ repo_url: https://github.com/eaton-lab/kmerkit
 theme:
   name: material
   palette:
+    primary: teal     
+    accent: orange
     - scheme: default
       toggle:
         icon: material/lightbulb-outline
@@ -53,10 +55,10 @@ markdown_extensions:
 
 extra_javascript:
   - js/custom.js 
+  - https://unpkg.com/mermaid@8.9.2/dist/mermaid.min.js
   # - js/termynal.js
   # - js/mermaid.js
-  - https://unpkg.com/mermaid@8.4.6/dist/mermaid.min.js
 
 extra_css:
   # - css/termynal.css
-  - css/custom.css
+  # - css/custom.css
