@@ -1,12 +1,9 @@
-# This is a basic workflow to help you get started with Actions
-
-name: mkdocs-CI
-
-# Controls when the action will run. 
+name: ci
 on:
   push:
-    branches: [ main ]
-
+    branches:
+      - master
+      - main
 jobs:
   deploy:
     runs-on: ubuntu-latest
