@@ -3,6 +3,7 @@
 ### Workflow diagram
 
 ```mermaid
+%%{init: {'theme': 'dark', "flowchart" : { "curve" : "basis" } } }%%
 graph LR
     A(kcount)
     B(kfilter)

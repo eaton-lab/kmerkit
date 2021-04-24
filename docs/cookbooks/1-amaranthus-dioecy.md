@@ -3,6 +3,7 @@
 ## Workflow diagram
 
 ```mermaid
+%%{init: {'theme': 'dark', "flowchart" : { "curve" : "basis" } } }%%
 graph LR
 	0(kinit)
 	1(ktrim)
@@ -68,7 +69,8 @@ If you wish to follow along you can dowload the data from ERA with these instruc
 
 ## Kmerkit analysis
 ### Initialize a new project
-Start a new project by entering a name and working directory to `init`, representing the filename prefix and location where all files will be saved. 
+Start a new project by entering a name and working directory to `init`, 
+representing the filename prefix and location where all files will be saved. 
 The directory will be created if it doesn't yet exist. Multiple input fastq 
 files can be entered as arguments, or many can be selected using a wildcard 
 selector like below. Paired reads are automatically detected based on name matching.
@@ -77,15 +79,14 @@ selector like below. Paired reads are automatically detected based on name match
 kmerkit init --name dioecy --workdir /tmp ./fastq-data/*.gz
 ```
 
-This step creates a project JSON file, which contains the full reproducible 
-information about each step in a kmerkit analysis. Subsequent steps fetch
-appropriate information from previous steps. This file is updated 
-upon each kmerkit module that is run. Results or status of a project can be
-viewed by reading this file directly, or in a more nicely formatted view by
-calling `kmerkit stats` and specifying the JSON file and the module.
+This step creates a project JSON file, which will contain the fully reproducible 
+information about each step in a kmerkit analysis. This file is updated 
+upon each kmerkit module that is run. This file can be read directly, 
+or, you can access a more nicely formatted view of specific results by calling
+`kmerkit stats` and specifying a specific module.
 
 ```bash
-kmerkit stats --json /tmp/dioecy.json --module init
+kmerkit stats --json /tmp/dioecy.json init
 ```
 
 ??? tip "kmerkit stats output"
@@ -94,11 +95,15 @@ kmerkit stats --json /tmp/dioecy.json --module init
 	```
 
 ### Read trimming (optional)
-You can perform read-trimming/filtering using your preferred tool before 
-calling `init` to load your reads, or do it in `kmerkit`, which
+You can perform read trimming, filtering, or subsampling using your 
+preferred tool before calling `init` to load your reads, or, you can also 
+do it in `kmerkit` directly using the `kmerkit trim` module. This 
 uses the program `fastp` with default arguments for single or 
-paired-end reads. Subsequent steps (e.g., `count`) will use the trimmed
-reads
+paired-end reads to trim adapters. Subsampled reads are selected from the 
+beginning of the file. Trimmed read files are written to the workdir, 
+and subsequent modules (e.g., `count` and `extract`) will 
+use the trimmed reads instead of the raw reads, (both remain 
+referenced in the JSON file).
 
 ```bash
 kmerkit trim --json /tmp/dioecy.json
