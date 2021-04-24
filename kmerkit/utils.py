@@ -7,6 +7,8 @@ General utilities
 import os
 import sys
 import glob
+import platform
+import subprocess
 from typing import List
 from copy import copy
 import pandas as pd
@@ -252,3 +254,42 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
     }
     logger.configure(**config)
     logger.enable("kmerkit")
+
+
+
+def _num_cpus_unix():
+    """Return the number of active CPUs on a Unix system."""
+    return os.sysconf("SC_NPROCESSORS_ONLN")
+
+
+def _num_cpus_darwin():
+    """Return the number of active CPUs on a Darwin system."""
+    cmd = ['sysctl', '-n', 'hw.ncpu']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    return proc.stdout.read()
+
+
+def _num_cpus_windows():
+    """Return the number of active CPUs on a Windows system."""
+    return os.environ.get("NUMBER_OF_PROCESSORS")
+
+
+def num_cpus():
+    """
+    Return the effective number of CPUs in the system as an integer, 
+    copied from the IPython function.
+    """
+    ncpufuncs = {
+        'Linux':_num_cpus_unix,
+        'Darwin':_num_cpus_darwin,
+        'Windows':_num_cpus_windows
+    }
+    ncpufunc = ncpufuncs.get(
+        platform.system(),
+        _num_cpus_unix,
+    )
+    try:
+        ncpus = max(1,int(ncpufunc()))
+    except:
+        ncpus = 1
+    return ncpus
