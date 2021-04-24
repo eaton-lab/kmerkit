@@ -1,27 +1,31 @@
 
 
-### Workflow diagram
+## Workflow diagram
 
 ```mermaid
 graph LR
+	0(kinit)
+	1(ktrim)
 	A(kcount)
 	B(kfilter)
 	C(kextract)
 	D(kassemble)
-	A --> B --> C --> D
+	0 --> 1 --> A --> B --> C --> D
+
+linkStyle default stroke-width:2px,fill:none,stroke:grey;   	
 ```
 
-### Study description
+## Study description
 
-Here we implement the study by Neves et al. to detect a male linked 
+Here we re-implement the study by Neves et al. to detect a male linked 
 genomic region involved in sex determination in the dioecious plant species *Amaranthus palmeri*. This study uses pool-seq to sequence four populations composing male and female plants from two geographically distinct populations.
 
 <cite>Cátia José Neves, Maor Matzrafi, Meik Thiele, Anne Lorant, Mohsen B Mesgaran, Markus G Stetter, Male Linked Genomic Region Determines Sex in Dioecious Amaranthus palmeri, Journal of Heredity, Volume 111, Issue 7, October 2020, Pages 606–612, <a href=https://doi.org/10.1093/jhered/esaa047>https://doi.org/10.1093/jhered/esaa047</a></cite>
 
 
-### Get the fastq data
-If you wish to follow along you can dowload the data with these instructions.
-
+## Fetch fastq data
+If you wish to follow along you can dowload the data from ERA with these instructions:
+<!-- 
 ??? abstract "download fastq data using wget"
     ```bash
     # make a directory to store the raw fastq data files
@@ -39,8 +43,8 @@ If you wish to follow along you can dowload the data with these instructions.
         wget $url;
     done
     ```
-
-??? abstract "or, download fastq data using sra-tools"
+ -->
+??? abstract "Download fastq data using sra-tools"
 
     Download the latest version of the sratools from [https://github.com/ncbi/sra-tools/wiki/01.-Downloading-SRA-Toolkit](https://github.com/ncbi/sra-tools/wiki/01.-
     Downloading-SRA-Toolkit) by selecting the compiled binaries that are 
@@ -57,82 +61,125 @@ If you wish to follow along you can dowload the data with these instructions.
 
     # download files to the specified fastq directory
     for run in ERR4161581 ERR4161582 ERR4161583 ERR4161584; do
-        fasterq-dump --progress --outdir ./fastq-data --temp /tmp $run;
+        fasterq-dump --progress --outdir ./fastq-data --temp . $run;
     done
     ```
 
 
+## Kmerkit analysis
 ### Initialize a new project
+Start a new project by entering a name and working directory to `init`, representing the filename prefix and location where all files will be saved. 
+The directory will be created if it doesn't yet exist. Multiple input fastq 
+files can be entered as arguments, or many can be selected using a wildcard 
+selector like below. Paired reads are automatically detected based on name matching.
 
-```console
-kmerkit init --name dioecy --workdir /tmp ./data/amaranth/*.gz
+```bash
+kmerkit init --name dioecy --workdir /tmp ./fastq-data/*.gz
 ```
 
-### Count kmers
+This step creates a project JSON file, which contains the full reproducible 
+information about each step in a kmerkit analysis. Subsequent steps fetch
+appropriate information from previous steps. This file is updated 
+upon each kmerkit module that is run. Results or status of a project can be
+viewed by reading this file directly, or in a more nicely formatted view by
+calling `kmerkit stats` and specifying the JSON file and the module.
 
-```console
+```bash
+kmerkit stats --json /tmp/dioecy.json --module init
+```
+
+??? tip "kmerkit stats output"
+	```console
+	...
+	```
+
+### Read trimming (optional)
+You can perform read-trimming/filtering using your preferred tool before 
+calling `init` to load your reads, or do it in `kmerkit`, which
+uses the program `fastp` with default arguments for single or 
+paired-end reads. Subsequent steps (e.g., `count`) will use the trimmed
+reads
+
+```bash
+kmerkit trim --json /tmp/dioecy.json
+```
+
+```bash
+kmerkit stats --json /tmp/dioecy.json --module trim
+```
+
+??? tip "kmerkit stats output"
+	```console
+	...
+	```
+
+### Count kmers
+Kmers are counted for each sample using `kmc` at the specified kmer-size. 
+Kmers occurring above or below the specified thresholds will be excluded. 
+See the `kmerkit count` page for details on parallelization and memory
+consumption for optimizing the speed of this step, which is usually the most time consuming. 
+
+```bash
 kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 --threads 20
 ```
 
-??? abstract "kmerkit logged output"
+
+```bash
+kmerkit stats --json /tmp/dioecy.json --module count
+```
+
+??? tip "kmerkit stats output"
 	```console
 	...
 	```
 
 
-### Filter kmers for those unique to males vs females
 
-??? "Create a phenotype file (phenos.tsv)"
-	This should be a tab (or any whitespace) separated values in a table with
-	sample names in the first row (the column name for this row is ignored)
-	and then trait values in subsequent columns. In the example below we
-	will select the column "male" but it is fine for other columns of data
-	to be present in the file which can be used in other steps (e.g., GWAS).
-
-	```console
-
-	name        trait
-	sample-1	1
-	sample-2	1
-	sample-3	0
-	sample-4	0
-	...			
-	```
+### Filter kmers
+Apply filters to identify target kmers that are enriched in one group of 
+samples versus another. In this case, we aim to identify male-specific kmers,
+meaning those that are present in males but not females. This can be done 
+by setting a high `min_map` for group 1 (kmers must be present in group 1) and 
+setting a low `max_map` for group 0 (kmers cannot be present in group 0). We
+must also assign samples to groups 0 or 1. For studies with many samples this
+is most easily done by entering a CSV file (see the kfilter docs section). Here
+because there are few samples I use the simpler option of entering the sample
+names directly using the `-0` and `-1` options to assign to their respective
+groups. The min_map and max_map entries each take two ordered values, assigned
+to group 0 and 1, respectively.
 
 ```console
 kmerkit filter \
 	--json /tmp/dioecy.json \
-	--trait trait.csv \
-	--minmap 0.0 0.9 \            # kmer-freq>=0.9 of samples where trait=1
-	--maxmap 0.1 1.0              # kmer-freq<=0.1 of samples where trait=0
+	-0 ERR4161581 \
+	-0 ERR4161582 \
+	-1 ERR4161583 \
+	-1 ERR4161584 \
+	--minmap 0.0 0.9 \            # kmer-freq>=0.9 of samples when trait=1
+	--maxmap 0.1 1.0              # kmer-freq<=0.1 of samples when trait=0
 ```
 
-??? abstract "kmerkit logged output"
+```console
+kmerkit stats -j /tmp/dioecy.json filter
+```
+??? abstract "kmerkit filter results"
 	```console
 	...
 	```
 
-The resulting files are KMC database files written with the name prefix `{workdir}/{name}-{sample-name}-kfilter.[pre,suf]`
-
-??? info "peek at workdir file structure"
-	```console
-	.
-	|---workdir
-	    |
-	    ------- a
-	    |-------b
-	    --------c
-	    ...
-	```
-
-
-### Extract reads containing target kmers from samples
+### Extract reads 
+Now that we've identified a set of target kmers we will extract reads from 
+fastq data files that contain these kmers. This is expected to pull out reads
+mapping to male-specific regions of the <i>A. palmeri</i> genome. Here you 
+can enter new fastq files to extract data from, or enter the names of samples
+already in the project database, which will use the (trimmed) fastq data files
+referenced in the JSON file. Here I select the two male populations.
 
 ```console
 kmerkit extract \
 	--json /tmp/dioecy.json \
 	--min-kmers-per-read 5 \
-	./data/amaranths/*.gz
+	ERR4161583 ERR4161584
 ```
 
 ??? abstract "kmerkit logged output"
@@ -141,15 +188,44 @@ kmerkit extract \
 	```
 
 
-### Assemble contigs from extracted reads
+### Assemble contigs 
+From the extracted reads created in the last step, we can now assemble contigs
+for each sample (or for all samples pooled together) using the `assemble` 
+module. Here we use the default assembler, spades. This creates a number of
+output files in the workdir, which can be summarized with `stats`. 
 
 ```console
-kmerkit assemble \
-	--json /tmp/dioecy.json \
-	--assembler
+kmerkit assemble --json /tmp/dioecy.json
 ```
 
-??? abstract "kmerkit logged output"
+The main result of Neves et al. was the identification of an approximately
+2Mb assembled contig representing a large contiguous male-specific genomic
+region. The summary here shows the ...
+
+??? tip "kmerkit stats output"
 	```console
 	...
 	```
+
+## Reproducibility
+In addition to your scripts that can be used to reproduce your analysis, the 
+JSON project file contains a full record of the samples, parameters, and the
+order of analysis steps that make up your analysis.
+
+??? success "kmerkit project JSON file"
+	```console
+	...
+	```
+
+
+## TODO: Post-pipeline analysis API
+The `kmerkit` Python API can be used to perform post-pipeline analyses 
+in a jupyter notebook. Here we create a plot of 
+
+```python
+import kmerkit
+
+project = kmerkit.load_json("/tmp/dioecy.json")
+...
+```
+

@@ -5,8 +5,14 @@ repo_url: https://github.com/eaton-lab/kmerkit
 theme:
   name: material
   palette:
-    primary: teal
-    accent: deep orange
+    - scheme: default
+      toggle:
+        icon: material/lightbulb-outline
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/lightbulb
+        name: Switch to light mode
   icon:
     logo: octicons/hubot-24
   features:
@@ -17,7 +23,7 @@ theme:
 
 nav:
   - Home: index.md
-  - Ethos: ethos.md
+  - About/Ethos: ethos.md
   - Installation: installation.md
   - Tutorial - User Guide:
       - Quick-start: quick-start.md
@@ -46,10 +52,11 @@ markdown_extensions:
   # - pymdownx.highlight  
 
 extra_javascript:
-  - js/termynal.js
   - js/custom.js 
-  - js/mermaid.js
-  # - https://unpkg.com/mermaid@8.4.6/dist/mermaid.min.js
+  # - js/termynal.js
+  # - js/mermaid.js
+  - https://unpkg.com/mermaid@8.4.6/dist/mermaid.min.js
+
 extra_css:
-  - css/termynal.css
+  # - css/termynal.css
   - css/custom.css

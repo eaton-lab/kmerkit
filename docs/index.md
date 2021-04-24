@@ -11,8 +11,11 @@ software. The `kmerkit` tools are available as both a command-line interface
 as well as a Python API.
 
 
+Core pipelines:
 ```mermaid
 graph LR
+   A0(kinit)
+   A1(ktrim)
    A(kcount)
    B(kfilter)
    C(kextract)
@@ -23,6 +26,9 @@ graph LR
    H(kmatrix)
    I(kgwas)
    J(klearn: API)
+   A0 --> A1
+   A1 --> A
+   A0 --> A
    A --> B
    B --> C
    C --> D
@@ -35,5 +41,14 @@ graph LR
    D --> G
    H --> I
    H --> J
+
+linkStyle default stroke-width:2px,fill:none,stroke:grey;   
 ```
 
+Other convenience utilities:
+```mermaid
+graph TB
+   A(kdump)
+   B(kstats)
+   C(kinfo)
+```

@@ -1,8 +1,8 @@
 
 
 
-## Installation
-Recommended installation is with `conda` to ensure that the dependencies
+## Installation Instructions
+Recommended installation is with `conda` to ensure that all dependencies
 are pulled in correctly.
 
 === "conda"
@@ -25,15 +25,24 @@ are pulled in correctly.
 
 
 ## Dependencies
-These are all installed automatically when you install `kmerkit` with 
-`conda`. 
+These are all *installed automatically by conda* when you install 
+`kmerkit` with the `conda` instructions above. 
+Care was taken to select dependencies that are stable
+and minimal as possible.
 
+#### binaries
 - kmc: external tool for kmer counting and set operations
-- numpy: math operations
-- pandas: organize results into tables
-- toyplot: plotting library
-- toytree: tree-based operations and plotting
+- gemma: linear model inference 
+
+#### Python
+- numpy: math and array operations
+- scipy: statistical distributions
+- pandas: tabular data structures
+- scikit-learn: ML model inference
+- toyplot: minimalist plotting library
+- toytree: minimalist tree class and plotting
 - loguru: logging 
-- typer: command-line-interface
+- typer: type-checking and CLI 
+- pydantic: type-checking and JSON serialization
 <!-- - requests: API development -->
 <!-- - scikit-learn: statistical inference -->

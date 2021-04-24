@@ -7,6 +7,27 @@
 
 
 
+## CLI
+
+
+### Entering traits as a CSV file
+
+??? "Create a phenotype file (phenos.tsv)"
+	This should be a tab (or any whitespace) separated values in a table with
+	sample names in the first row (the column name for this row is ignored)
+	and then trait values in subsequent columns. In the example below we
+	will select the column "male" but it is fine for other columns of data
+	to be present in the file which can be used in other steps (e.g., GWAS).
+
+	```console
+
+	name        trait
+	sample-1	1
+	sample-2	1
+	sample-3	0
+	sample-4	0
+	...			
+	```
 
 
 
