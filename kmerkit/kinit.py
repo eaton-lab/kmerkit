@@ -3,19 +3,26 @@
 """
 Initialize a project with input data (fastq/a or SRA/URLs).
 This will create the JSON project file and check that the 
-paths to the data files are valid.
+paths to the data files are valid. Optionally, if you have not 
+already done so, you can implement read-trimming/filtering using
+the default settings with 'fastp', where the new trimmed files will
+be written to the working dir, and a reference to these files saved
+in the project JSON file.
 
 Usage:
 ------
 
-kmerkit init --name test --workdir /tmp/kmers --fastqs ...
+kmerkit init --name test --workdir /tmp/kmers --trim ...
 
 """
 
 import os
+import sklearn
+from loguru import logger
+import kmerkit
 from kmerkit.utils import KmerkitError
 from kmerkit.kschema import Project, Kinit
-from loguru import logger
+
 
 
 def init_project(name, workdir, fastq_dict, force=False):
@@ -56,10 +63,10 @@ class ProjectInit:
             name=name,
             workdir=workdir,
             versions={
-                'kmerkit': '2.0',
-                'kmc': '1.0',
-                'gemma': '1.0',
-                'sklearn': '0.0',
+                'kmerkit': kmerkit.__version__,
+                'kmc': '3.1.1',
+                'gemma': '0.9.83',
+                'sklearn': sklearn.__version__,
             },
             kinit=Kinit(data=fastq_dict, commands={})
         )
@@ -165,7 +172,7 @@ if __name__ == "__main__":
     import kmerkit
 
     FILES = "~/Documents/kmerkit/data/amaranths/hybridus_*.fastq.gz"
-    FASTQ_DICT = kmerkit.utils.get_fastq_dict_from_path(FILES, "_R")
+    FASTQ_DICT = kmerkit.utils.get_fastq_dict_from_path(FILES)
 
     # init and save project  
     PROJ = init_project(

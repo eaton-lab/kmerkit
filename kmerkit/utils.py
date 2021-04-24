@@ -163,9 +163,10 @@ def get_fastq_dict_from_path(
         files = glob.glob(fastq_path)
 
     # add files input as a list
-    files.extend([
-        os.path.realpath(os.path.expanduser(str(i))) for i in fastq_list
-    ])
+    if fastq_list:
+        files.extend([
+            os.path.realpath(os.path.expanduser(str(i))) for i in fastq_list
+        ])
     
     # check for files
     if not any(files):

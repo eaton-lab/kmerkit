@@ -48,6 +48,24 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel, Field, FilePath, confloat
 import sklearn
 
+# ---------------------------------------------------------------------
+
+class Kinit(BaseModel):
+    data: Dict[str, List[FilePath]] = Field(default_factory=dict)
+    commands: Dict[str, str] = Field(default_factory=dict)
+
+# ---------------------------------------------------------------------
+class KtrimParams(BaseModel):
+    subsample: int = Field(None)
+
+class KtrimData(BaseModel):
+    data_in: List[FilePath] = Field(None)
+    data_out: List[FilePath] = Field(None)
+    fastp_stats: dict = Field(None)
+
+class KtrimBase(BaseModel):
+    data: Dict[str, KtrimData] = Field(None, type=Dict)
+    params: KtrimParams = Field(None)
 
 # ---------------------------------------------------------------------
 class KcountData(BaseModel):
@@ -79,12 +97,6 @@ class KcountParams(BaseModel):
 class KcountBase(BaseModel):
     params: KcountParams = Field(...)
     data: Dict[str, KcountData] = Field(None, type=Dict)
-
-# ---------------------------------------------------------------------
-
-class Kinit(BaseModel):
-    data: Dict[str, List[FilePath]] = Field(default_factory=dict)
-    commands: Dict[str, str] = Field(default_factory=dict)
 
 # ---------------------------------------------------------------------
 
@@ -164,6 +176,7 @@ class Project(BaseModel):
     workdir: str = "/tmp"
     versions: Versions = Field(default_factory=Versions)
     kinit: Kinit = Field(default_factory=Kinit)
+    ktrim: KtrimBase = Field(None)
     kcount: KcountBase = Field(None)
     kfilter: KfilterBase = Field(None)
     kmatrix: KmatrixBase = Field(None)
@@ -182,20 +195,20 @@ if __name__ == "__main__":
 
     # example
     samples = ['a', 'b', 'c']
-    params = KcountParams(max_depth=1, max_count=65535)
-    data = {i: KcountData() for i in samples}
-    kc = KcountBase(params=params, data=data)
+    # params = KcountParams(max_depth=1, max_count=65535)
+    # data = {i: KcountData() for i in samples}
+    # kc = KcountBase(params=params, data=data)
 
-    proj = Project(kcount=kc)
+    # proj = Project(kcount=kc)
 
-    params = KfilterParams(
-        min_cov=0, min_map={0:0, 1:1}, max_map={0:0, 1:1}, min_map_canon={0:0, 1:0}
-    )
-    data = KfilterData()
-    kf = KfilterBase(params=params, data=data)
+    # params = KfilterParams(
+    #     min_cov=0, min_map={0:0, 1:1}, max_map={0:0, 1:1}, min_map_canon={0:0, 1:0}
+    # )
+    # data = KfilterData()
+    # kf = KfilterBase(params=params, data=data)
 
-    proj = Project(kcount=kc, kfilter=kf, **proj.dict(exclude={'kcount', 'kfilter'}))
-    print(proj.json(indent=2, exclude_none=False))
+    # proj = Project(kcount=kc, kfilter=kf, **proj.dict(exclude={'kcount', 'kfilter'}))
+    # print(proj.json(indent=2, exclude_none=False))
 
     # # write to JSON
     # with open("/tmp/test.json", 'w') as out:

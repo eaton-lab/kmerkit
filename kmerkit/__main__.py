@@ -20,16 +20,19 @@ ktree --name hybridus \
       --threshold ... \
       --target-options ... \
 """
-
+import os
 from enum import Enum
 import tempfile
 from pathlib import Path
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple
 import typer
+import pandas as pd
 from kmerkit import __version__
+from kmerkit.kschema import Project
 from kmerkit.utils import set_loglevel, KmerkitError
 from kmerkit.utils import get_fastq_dict_from_path, get_traits_dict_from_csv
 from kmerkit.kinit import init_project
+from kmerkit.ktrim import Ktrim
 from kmerkit.kcount import Kcount
 from kmerkit.kfilter import Kfilter
 from kmerkit.kextract import Kextract
@@ -44,7 +47,6 @@ class LogLevel(str, Enum):
     INFO = "INFO"
     WARNING = "WARNING"
     ERROR = "ERROR"
-
 
 # creates the top-level kmerkit app
 app = typer.Typer(add_completion=True, context_settings=CONTEXT_SETTINGS)
@@ -63,32 +65,36 @@ def callback():
 
 @app.command()
 def docs():
-    "opens the kmerkit documentation in a browser"
+    "Opens the kmerkit documentation in a browser"
     typer.echo("Opening kmerkits documentation in browser")
     typer.launch("https://kmerkit.readthedocs.io")
 
 
 @app.command()
-def info(
+def stats(
     json_file: str = typer.Option(..., "--json", "-j", help="kmerkit project JSON file"),
-    flow: bool = typer.Option(False, help="show status as flow diagram"),
-    stats: bool = typer.Option(False, help="show per-sample stats"),
+    module: str = typer.Argument(None, help="kmerkit module") 
+    # flow: bool = typer.Option(False, help="show status as flow diagram"),
     ):
     """
-    Show status or flow diagram of project
+    Return tabular stats output for a project module to stdout.
     """
-    # print the stats (json?) file location
-    # typer.secho(
-        # f"project path: {workdir}/{name}", fg=typer.colors.CYAN)
+    module = module.lower()
 
-    # TODO: create a class for stats and progress all in JSON
+    # load the project
+    project = Project.parse_file(json_file).dict()
+    if module not in project:
+        typer.Abort(f"no results exist for {module}")
 
-    # shows a flowchart based on progress
-    if flow:
-        pass
-
-    if stats:
-        pass
+    typer.secho(
+        "{} stats for project {}".format(
+            module,
+            os.path.basename(json_file).rsplit(".")[0],
+        ), 
+        fg=typer.colors.CYAN,
+    )
+    # TODO, make a class to normalize each type to CSV.
+    print(pd.json_normalize(project[module]['data']))
 
 
 
@@ -125,7 +131,7 @@ def init(
     # subsample_reads: int = typer.Option(None),
     ):
     """
-    Initialize a kmerkit project.
+    Initialize a kmerkit project from fastq/a input files.
 
     Creates a JSON project file in <workdir>/<name>.json. Sample
     names are parsed from input filenames by splitting on the last
@@ -211,7 +217,7 @@ def filter(
     # min_map_canon
     ):
     """
-    filter kmers based on distribution among samples/traits
+    Filter kmers based on frequencies among grouped samples.
     """
     # report the module
     typer.secho(
@@ -252,13 +258,14 @@ def extract(
     samples: List[str] = typer.Argument(None),
     ):
     """
-    Extract reads from fastq/a files that contain at least
-    'min-kmers-per-read' kmers in them. If 'keep-paired' then reads
-    are returns as paired-end. Samples can be entered as arguments
-    in three possible ways: (1) enter sample names that are in the
-    init database; (2) enter an integer for group0 or group1 from
-    the kfilter database; (3) enter a file path to one or more
-    fastq files.
+    Extract reads from fastq/a files containing target kmers.
+
+    Reads must contain at least 'min-kmers-per-read' kmers in them.
+    If 'keep-paired' then reads are returns as paired-end. Samples can 
+    be entered as arguments in three possible ways: (1) enter sample 
+    names that are in the init database; (2) enter an integer for 
+    group0 or group1 from the kfilter database; (3) enter a file path 
+    to one or more fastq files.
 
     kmerkit extract -j test.json A B C D      # select from init\n
     kmerkit extract -j test.json 1            # select from filter group\n
@@ -270,10 +277,41 @@ def extract(
         bold=False,
     )
     set_loglevel(loglevel)
-    kex = Kextract(
-        json_file=json_file,
-        samples=samples,
-        min_kmers_per_read=min_kmers_per_read,
-        keep_paired=keep_paired,
+
+    try:
+        kex = Kextract(
+            json_file=json_file,
+            samples=samples,
+            min_kmers_per_read=min_kmers_per_read,
+            keep_paired=keep_paired,
+        )
+        kex.run(force=force)
+    except KmerkitError:
+        typer.Abort()
+
+
+@app.command()
+def trim(
+    json_file: Path = typer.Option(..., "-j", "--json"),
+    subsample: int = typer.Option(None, help="subsample to N reads"),
+    cores: int = typer.Option(0, help="N parallel cores (0=all)"),
+    force: bool = typer.Option(False, help="overwrite existing files"),
+    loglevel: LogLevel = LogLevel.INFO,    
+    ):
+    """
+    Trim, filter, or subsample reads using fastp.
+
+    kmerkit trim -j test.json --subsample 1000000 --cores 20
+    """
+    typer.secho(
+        "trim: trim and filter reads using fastp (default settings)",
+        fg=typer.colors.MAGENTA,
+        bold=False,
     )
-    kex.run(force=force)
+    set_loglevel(loglevel)
+
+    try:
+        ktr = Ktrim(json_file=json_file, subsample=subsample)
+        ktr.run(force=force, cores=cores)
+    except KmerkitError:
+        typer.Abort()

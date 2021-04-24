@@ -11,6 +11,7 @@ from loguru import logger
 from kmerkit.utils import KmerkitError
 
 
+FASTPBIN = os.path.join(sys.prefix, "bin", "fastp")
 KMCBIN = os.path.join(sys.prefix, "bin", "kmc")
 KMTBIN = os.path.join(sys.prefix, "bin", "kmc_tools")
 assert os.path.exists(KMCBIN), (

@@ -53,8 +53,15 @@ class Kcount:
         # load project json file to get sample paths
         self.json_file = json_file
         self.project = Project.parse_file(json_file).dict()
-        self.fastq_dict = self.project['kinit']['data']
-        self.samples = {}
+
+        # select ktrim data if exists else get kinit data
+        if self.project.get('ktrim'):
+            self.fastq_dict = {
+                sname: self.project['ktrim']['data'][sname]['data_out']
+                for sname in self.project['ktrim']['data']
+            }
+        else:
+            self.fastq_dict = self.project['kinit']['data']
 
         # use Serializable schema to perform type checking
         self.params = KcountParams(
@@ -152,6 +159,7 @@ class Kcount:
             self.check_overwrite()
 
         # iterate over samples one at a time.
+        samples = {}
         for sname in self.fastq_dict:
 
             # count kmers -------------------------------
@@ -159,7 +167,7 @@ class Kcount:
             kmcstats = self.call_kmc_count(indata, sname, threads)
 
             # convert kmc stats to KcountData() object to store result
-            self.samples[sname] = KcountData(**{
+            samples[sname] = KcountData(**{
                 'reads_total': kmcstats["#Total_reads"],
                 'kmers_total': kmcstats["#Total no. of k-mers"],
                 'kmers_unique': kmcstats["#Unique_k-mers"],
@@ -177,7 +185,7 @@ class Kcount:
         # save to JSON
         self.project['kcount'] = KcountBase(
             params=KcountParams(**self.params),
-            data=self.samples,
+            data=samples,
         )
         project = Project(**self.project)
         with open(self.json_file, 'w') as out:
