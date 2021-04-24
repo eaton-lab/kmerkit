@@ -13,6 +13,7 @@ as well as a Python API.
 
 Core pipelines:
 ```mermaid
+%%{init: {'theme': 'dark', "flowchart" : { "curve" : "basis" } } }%%
 graph LR
    A0(kinit)
    A1(ktrim)
@@ -47,6 +48,7 @@ linkStyle default stroke-width:2px,fill:none,stroke:grey;
 
 Other convenience utilities:
 ```mermaid
+%%{init: {'theme': 'dark', "flowchart" : { "curve" : "basis" } } }%%
 graph TB
    A(kdump)
    B(kstats)
