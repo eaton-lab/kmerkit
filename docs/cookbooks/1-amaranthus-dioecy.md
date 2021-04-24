@@ -76,7 +76,7 @@ files can be entered as arguments, or many can be selected using a wildcard
 selector like below. Paired reads are automatically detected based on name matching.
 
 ```bash
-kmerkit init --name dioecy --workdir /tmp ./fastq-data/*.gz
+kmerkit init --name dioecy --workdir /tmp --delim "_" ./fastq-data/*.gz 
 ```
 
 This step creates a project JSON file, which will contain the fully reproducible 
@@ -95,18 +95,15 @@ kmerkit stats --json /tmp/dioecy.json init
 	```
 
 ### Read trimming (optional)
-You can perform read trimming, filtering, or subsampling using your 
-preferred tool before calling `init` to load your reads, or, you can also 
-do it in `kmerkit` directly using the `kmerkit trim` module. This 
-uses the program `fastp` with default arguments for single or 
-paired-end reads to trim adapters. Subsampled reads are selected from the 
-beginning of the file. Trimmed read files are written to the workdir, 
+You *can* perform read trimming on your own before using kmerkit, but we also
+provide the option to trim, filter, or subsample your reads within kmerkit
+by calling the program `fastp`. Trimmed read files are written to the workdir, 
 and subsequent modules (e.g., `count` and `extract`) will 
-use the trimmed reads instead of the raw reads, (both remain 
-referenced in the JSON file).
+use the trimmed reads instead of the raw reads (both sets of filepaths can 
+be viewed in the project JSON file).
 
 ```bash
-kmerkit trim --json /tmp/dioecy.json
+kmerkit trim --json /tmp/dioecy.json --workers 4
 ```
 
 ```bash
@@ -122,10 +119,11 @@ kmerkit stats --json /tmp/dioecy.json trim
 Kmers are counted for each sample using `kmc` at the specified kmer-size. 
 Kmers occurring above or below the specified thresholds will be excluded. 
 See the `kmerkit count` page for details on parallelization and memory
-consumption for optimizing the speed of this step, which is usually the most time consuming. 
+consumption for optimizing the speed of this step, which is usually 
+the most time consuming. 
 
 ```bash
-kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 --threads 20
+kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 --workers 4 
 ```
 
 
