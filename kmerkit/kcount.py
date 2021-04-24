@@ -70,7 +70,7 @@ class Kcount:
             self.project['workdir'], f"{self.project['name']}_kcount")
 
         # report which KMC will be used. Same will be used for all.
-        logger.info(f"KMC bin: {KMCBIN}")
+        logger.info(f"Counting kmers with KMC ({KMCBIN})")
 
 
 
@@ -130,20 +130,15 @@ class Kcount:
         """
         Prevent overwriting future files.
         """
-        next_steps = [
-            self.project.get("kfilter"),
-            self.project.get("ktree"),
-            self.project.get("kmatrix"),
-        ]
-        if any(next_steps):
-            logger.warning(
+        if self.project['kcount']:
+            logger.error(
                 "\nRunning kcount will overwrite previous kmer-counting "
                 "results and remove references to any existing downstream "
                 "analyses on these files. You must use the force argument "
                 "to confirm this action. An alternative recommended workflow "
                 "is to use the 'branch' option to create a separate new named "
                 "project (new JSON file) from which to start this analysis "
-                "without overwriting your previous results"
+                "without overwriting your previous results."
             )
             raise KmerkitError("Preventing data overwrite")
 
@@ -173,6 +168,11 @@ class Kcount:
                 'kmers_above_threshold': kmcstats["#k-mers_above_max_threshold"],
                 'database': f"{self.prefix}_{sname}"
             })
+            logger.info("new database: '{}' reads={} uniq-kmers={}"
+                .format(
+                    sname, kmcstats["#Total_reads"], kmcstats["#Unique_k-mers"]
+                )
+            )
 
         # save to JSON
         self.project['kcount'] = KcountBase(

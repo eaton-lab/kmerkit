@@ -7,6 +7,7 @@ General utilities
 import os
 import sys
 import glob
+from typing import List
 from copy import copy
 import pandas as pd
 from loguru import logger
@@ -127,8 +128,11 @@ def get_traits_dict_from_csv(csv_file, **kwargs):
     # return traits
 
 
-
-def get_fastq_dict_from_path(fastq_path, name_split="_R"):
+def get_fastq_dict_from_path(
+    fastq_path: str = None, 
+    fastq_list: List = None, 
+    name_delim: str ="_R",
+    ):
     """
     Select multiple files using a wildcard selector
     (e.g., "./data/*.fastq.gz") and parse names from files by 
@@ -140,40 +144,51 @@ def get_fastq_dict_from_path(fastq_path, name_split="_R"):
     fastq_path (str):
         A wildcard string to select multiple fastq files. Examples: 
         "./files/*.fastq" or "./data/samples-[0-9]*.fastq.gz".
-    name_split (str):
+    fastq_list (list):
+        A list of fastq file paths.
+    name_delim (str):
         Split names on this character to extract sample names from 
         fastq file names. For example, "_R" is frequently used to 
         split names prior to the "_R1" or "_R2" read specifier.
     """
     # the dictionary to be filled
     fastq_dict = {}
+    files = []
 
     # expand fastq_path
-    fastq_path = os.path.realpath(os.path.expanduser(fastq_path))
+    if fastq_path:
+        fastq_path = os.path.realpath(os.path.expanduser(fastq_path))
 
-    # raise an exception if no files were found
-    files = glob.glob(fastq_path)
+        # raise an exception if no files were found
+        files = glob.glob(fastq_path)
+
+    # add files input as a list
+    files.extend([
+        os.path.realpath(os.path.expanduser(str(i))) for i in fastq_list
+    ])
+    
+    # check for files
     if not any(files):
         msg = f"no fastq files found at: {fastq_path}"
         logger.error(msg)
         raise KmerkitError(msg)
 
     # sort the input files
-    files = sorted(files)
+    files = sorted(set(files))
 
     # report on found files
     logger.info("found {} input files".format(len(files)))
 
     # split file names to keep what comes before 'name_split'
     sample_names = [
-        os.path.basename(i.split(name_split)[0]) for i in files
+        os.path.basename(i).rsplit(name_delim)[0] for i in files
     ]
 
     # do not allow .fastq to still be present in names
     if any(['.fastq' in i for i in sample_names]):
         raise KmerkitError(
             "Failed extracting sample names from fastq filenames. "
-            "Try modifying the name_split argument."
+            "Try modifying the name_delim argument."
         )
 
     # check that all sample_names are unique
@@ -183,7 +198,8 @@ def get_fastq_dict_from_path(fastq_path, name_split="_R"):
         if not all([sample_names.count(i) == 2 for i in sample_names]):
             raise KmerkitError(
                 "Sample names are not unique, or in sets of 2 (PE). "
-                "You may need to try a different name_split setting."
+                "You may need to try a different name_delim arg."
+                f"{sample_names}"
             )                
         logger.info("detected PE data")
 
@@ -208,6 +224,8 @@ def get_fastq_dict_from_path(fastq_path, name_split="_R"):
 
 
 
+
+
 def set_loglevel(loglevel="DEBUG"):#, logfile=None):
     """
     Config and start the logger
@@ -218,8 +236,8 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
                 "sink": sys.stderr, 
                 "format": (
                     "{time:hh:mm} <level>{level: <7}</level> <white>|</white> "
-                    "<magenta>{file: <11}</magenta> <white>|</white> "
-                    "<cyan>{function: <16}</cyan> <white>|</white> "
+                    "<cyan>{file: <12}</cyan> <white>|</white> "
+                    # "<cyan>{function: ^25}</cyan> <white>|</white> "
                     "<level>{message}</level>"
                 ),
                 "level": loglevel,

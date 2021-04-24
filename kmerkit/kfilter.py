@@ -101,21 +101,23 @@ class Kfilter:
         # to be filled with results
         self.samples = {}
 
+        # prefix for output files
+        self.prefix = os.path.join(
+            self.project['workdir'], f"{self.project['name']}_kfilter")
+
+        # subsample traits to get union of kcount db and traits set
+        self.select_samples()
+
         # use Serializable schema to perform type checking
         self._params = KfilterParams(
             min_cov=min_cov,
             min_map=min_map,
             max_map=max_map,
             min_map_canon=min_map_canon,
+            trait_0=self.traits_to_samples[0],
+            trait_1=self.traits_to_samples[1],
         )
-        self.params = self._params.dict()
-
-        # prefix for output files
-        self.prefix = os.path.join(
-            self.project['workdir'], f"{self.project['name']}_kfilter")
-
-        # traits will be filled w/ union of kcount db and traits
-        self.select_samples()
+        self.params = self._params.dict()        
 
         # converts filter params to integers and checks
         self.filters_to_ints()
@@ -460,6 +462,7 @@ class Kfilter:
             out_name='min_cov-filtered',
         )
 
+
     def get_group0_filtered_set(self):
         """
         Prepare database of kmers that did NOT pass the filters
@@ -567,6 +570,7 @@ class Kfilter:
             # os.remove(f"{self.prefix}_map-0-filter-min")
             # os.remove(f"{self.prefix}_map-0-filter-max")
 
+
     def get_filtered_union(self):
         """
         Get the union of FILTERED kmers sets
@@ -583,6 +587,7 @@ class Kfilter:
             max_depth=3,
             out_name='filtered'
         )
+
 
     def get_kmers_passed_filters(self):
         """
@@ -603,10 +608,27 @@ class Kfilter:
         subprocess.run(cmd, check=True)
 
 
-    def run(self):
+    def check_overwrite(self):
+        """
+        Warn user of overwriting.
+        """
+        if self.project['kfilter']:
+            logger.error(
+                "\nKfilter results exist, use force to overwrite, or consider "
+                "using branching to produce new results on a separate named "
+                "branch without overwriting previous results."
+            )
+            raise KmerkitError("Preventing data overwrite")        
+
+
+    def run(self, force=False):
         """
         Create a 'complex' input file to run `kmc_tools complex ...`
         """
+        # check for current step
+        if not force:
+            self.check_overwrite()
+
         # MINCANON FILTER ---------------------------------------------
         # get kmers passing the mincov_canon filter (canon-filtered)
         # self.filter_canon()

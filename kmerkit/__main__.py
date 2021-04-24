@@ -23,10 +23,16 @@ ktree --name hybridus \
 
 from enum import Enum
 import tempfile
+from pathlib import Path
+from typing import List, Tuple, Optional, Union
 import typer
 from kmerkit import __version__
-from .utils import set_loglevel
-from .kcount import Kcount, get_fastq_dict_from_path
+from kmerkit.utils import set_loglevel, KmerkitError
+from kmerkit.utils import get_fastq_dict_from_path, get_traits_dict_from_csv
+from kmerkit.kinit import init_project
+from kmerkit.kcount import Kcount
+from kmerkit.kfilter import Kfilter
+from kmerkit.kextract import Kextract
 
 # add the -h option for showing help
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -61,10 +67,10 @@ def docs():
     typer.echo("Opening kmerkits documentation in browser")
     typer.launch("https://kmerkit.readthedocs.io")
 
+
 @app.command()
 def info(
-    name: str = typer.Option(..., "--name", "-n", help="Prefix for output files."),
-    workdir: str = typer.Option(..., "--workdir", "-w", help="Dir name for output files."),
+    json_file: str = typer.Option(..., "--json", "-j", help="kmerkit project JSON file"),
     flow: bool = typer.Option(False, help="show status as flow diagram"),
     stats: bool = typer.Option(False, help="show per-sample stats"),
     ):
@@ -72,8 +78,8 @@ def info(
     Show status or flow diagram of project
     """
     # print the stats (json?) file location
-    typer.secho(
-        f"project path: {workdir}/{name}", fg=typer.colors.CYAN)
+    # typer.secho(
+        # f"project path: {workdir}/{name}", fg=typer.colors.CYAN)
 
     # TODO: create a class for stats and progress all in JSON
 
@@ -85,8 +91,9 @@ def info(
         pass
 
 
+
 @app.command(context_settings=CONTEXT_SETTINGS)
-def kcount(
+def init(
     name: str = typer.Option(
         "test",
         "-n", "--name",
@@ -97,42 +104,72 @@ def kcount(
         "-w", "--workdir",
         help="Dir name for output files.",
         ),
-    fastqs: str = typer.Option(
-        ..., 
-        help="Path to fastq file or dir of fastqs files (e.g., ./fastqs/*.gz)",
+
+    force: bool = typer.Option(
+        False,
+        help="force overwrite of existing JSON file."
         ),
-    # fastqs: Path = typer.Option(
-    #     ..., 
-    #     help="Path to fastq file or dir of fastqs files (e.g., ./fastqs/*.gz)",
-    #     show_default=False,
-    #     exists=True,
-    #     dir_okay=True,
-    #     file_okay=True,
-    #     resolve_path=True,
-    #     allow_dash=True,
-    #     ),
-    trim_reads: bool = typer.Option(True),
-    canonical: bool = True,
-    kmersize: int = typer.Option(17, min=2),
-    mindepth: int = typer.Option(1, min=0),
-    maxdepth: int = typer.Option(int(1e9), min=1),
-    maxcount: int = typer.Option(255, min=1),
-    subsample_reads: int = typer.Option(None),
+    # sample: Optional[List[str]] = typer.Option(None),
+    delim: str = typer.Option("_R"),
+    loglevel: LogLevel = LogLevel.INFO,
+    data: List[Path] = typer.Argument(...,
+        show_default=False,
+        exists=True,
+        dir_okay=True,
+        file_okay=True,
+        resolve_path=False,
+        allow_dash=True,
+        help=("File path(s) to input fastq/a data files")
+        ),
+    # trim_reads: bool = typer.Option(True),
+    # subsample_reads: int = typer.Option(None),
+    ):
+    """
+    Initialize a kmerkit project.
+
+    Creates a JSON project file in <workdir>/<name>.json. Sample
+    names are parsed from input filenames by splitting on the last
+    occurrence of the optional 'delim' character (default is '_R').
+    Paired reads are automatically detected from _R1 and _R2 in names.
+    Examples:
+
+    kmerkit init -n test -w /tmp ./data/fastqs/*.gz\n
+    kmerkit init -n test -w /tmp ./data-1/A.fastq ./data-2/B.fastq
+    """
+    # parse the fastq_dict from string
+    set_loglevel(loglevel)
+    fastq_dict = get_fastq_dict_from_path(None, data, delim)
+
+    try:
+        init_project(name=name, workdir=workdir, fastq_dict=fastq_dict, force=force)
+    except KmerkitError:
+        typer.Abort()
+
+
+
+@app.command(context_settings=CONTEXT_SETTINGS)
+def count(
+    json_file: Path = typer.Option(..., "-j", "--json"),
+    kmer_size: int = typer.Option(17, min=2),
+    min_depth: int = typer.Option(1, min=1),
+    max_depth: int = typer.Option(int(1e9), min=1),
+    max_count: int = typer.Option(255, min=1),
+    canonical: bool = typer.Option(True),
+    threads: int = typer.Option(2),
+    force: bool = typer.Option(False, help="overwrite existing results."),
     loglevel: LogLevel = LogLevel.INFO,
     ):
     """
     Count kmers in fastq/a files using KMC. 
 
-    kcount will create the workdir if it does not yet exist, and will
-    write kmer database files for each sample in files named
-    <workdir>/kcount_<name>.kmc_[suf,pre]
+    kcount will write kmer database files for each sample to 
+    <workdir>/<name>_kcount_.kmc_[suf,pre]. Example:
 
-    Example call:
-      kmerkit kcount -n test -w /tmp --fastqs ./data/*.gz  
+    kmerkit count -j test.json --kmer-size 35 --min-depth 5
     """
     # report the module
     typer.secho(
-        "kcount: counting kmers from fastq/a files using KMC",
+        "count: counting kmers from fastq/a files using KMC",
         fg=typer.colors.MAGENTA,
         bold=False,
     )
@@ -145,33 +182,98 @@ def kcount(
         bold=False,
     )
 
-    # TODO: print CLI string to the logger
-    # ...
-
-    # parse the fastq_dict from string
-    fastq_dict = get_fastq_dict_from_path(fastqs, "_R")
-
     # run the command
     counter = Kcount(
-        name=name,
-        workdir=workdir,
-        fastq_dict=fastq_dict,
-        kmersize=kmersize,
-        trim_reads=trim_reads,
-        subsample_reads=subsample_reads,
-        mindepth=mindepth,
-        maxdepth=maxdepth,
-        maxcount=maxcount,
+        str(json_file),
+        kmer_size=kmer_size,
+        min_depth=min_depth,
+        max_depth=max_depth,
+        max_count=max_count,
         canonical=canonical,
     )
     # print(counter.statsdf.T)
-    counter.run()
+    try:
+        counter.run(threads=threads, force=force)
+    except KmerkitError as exc:
+        typer.Abort(exc)
 
 
 
 @app.command()
-def kfilter(name: str, workdir: str, traits: str):
+def filter(
+    json_file: Path = typer.Option(..., '-j', '--json'),
+    traits: Path = typer.Option(...),
+    min_cov: float = typer.Option(0.5),
+    min_map: Tuple[float,float] = typer.Option((0.0, 0.1)),
+    max_map: Tuple[float,float] = typer.Option((0.1, 1.0)),
+    loglevel: LogLevel = LogLevel.INFO,
+    force: bool = typer.Option(False, help="overwrite existing results."),
+    # min_map_canon
+    ):
     """
     filter kmers based on distribution among samples/traits
     """
-    typer.echo("kfilter test")
+    # report the module
+    typer.secho(
+        "filter: filter kmers based on frequency in case/control groups",
+        fg=typer.colors.MAGENTA,
+        bold=False,
+    )
+    # set the loglevel
+    set_loglevel(loglevel)
+    typer.secho(
+        f"loglevel: {loglevel}, logfile: STDERR",
+        fg=typer.colors.MAGENTA,
+        bold=False,
+    )
+
+    # fake data
+    traits_dict = get_traits_dict_from_csv(traits)
+
+    # load database with phenotypes data
+    kgp = Kfilter(
+        json_file=json_file,
+        traits=traits_dict,
+        min_cov=min_cov,
+        min_map={0: min_map[0], 1: min_map[1]},
+        max_map={0: max_map[0], 1: max_map[1]},        
+        min_map_canon={0: 0.0, 1: 0.5},
+    )
+    kgp.run()
+
+
+@app.command()
+def extract(
+    json_file: Path = typer.Option(..., '-j', '--json'),
+    min_kmers_per_read: int = typer.Option(1),
+    keep_paired: bool = typer.Option(True),
+    loglevel: LogLevel = LogLevel.INFO,
+    force: bool = typer.Option(False, help="overwrite existing results."),  
+    samples: List[str] = typer.Argument(None),
+    ):
+    """
+    Extract reads from fastq/a files that contain at least
+    'min-kmers-per-read' kmers in them. If 'keep-paired' then reads
+    are returns as paired-end. Samples can be entered as arguments
+    in three possible ways: (1) enter sample names that are in the
+    init database; (2) enter an integer for group0 or group1 from
+    the kfilter database; (3) enter a file path to one or more
+    fastq files.
+
+    kmerkit extract -j test.json A B C D      # select from init\n
+    kmerkit extract -j test.json 1            # select from filter group\n
+    kmerkit extract -j test.json ./data/*.gz  # select new files\n
+    """
+    typer.secho(
+        "extract: extract reads containing target kmers",
+        fg=typer.colors.MAGENTA,
+        bold=False,
+    )
+    set_loglevel(loglevel)
+    kex = Kextract(
+        json_file=json_file,
+        samples=samples,
+        min_kmers_per_read=min_kmers_per_read,
+        keep_paired=keep_paired,
+    )
+    kex.run(force=force)

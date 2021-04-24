@@ -104,11 +104,14 @@ class Pool(IntEnum):
     control: 0
     case: 1
 
+
 class KfilterParams(BaseModel):
     min_cov: confloat(ge=0, le=1)
     min_map: Dict[int, confloat(ge=0, le=1)]
     max_map: Dict[int, confloat(ge=0, le=1)]
     min_map_canon: Dict[int, confloat(ge=0, le=1)]
+    trait_0: List[str] = Field(None)
+    trait_1: List[str] = Field(None)
 
 
 class KfilterBase(BaseModel):

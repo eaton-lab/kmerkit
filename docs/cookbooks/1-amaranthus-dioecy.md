@@ -32,22 +32,23 @@ wget $URL -O fastq_data/
 	...
 	```
 
-### Create kmer databases
+### Initialize a new project
 
 ```console
-kmerkit kcount \
-	--name amaranth-dioecy \
-	--workdir ./cookbook1 \
-	--kmersize 17 \
-	--mindepth 5 \
-	--sample ... \
-	--sample ... \
-	...
+kmerkit init --name dioecy --workdir /tmp ./data/amaranth/*.gz
 ```
+
+### Count kmers
+
+```console
+kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 
+```
+
 ??? abstract "kmerkit logged output"
 	```console
 	...
 	```
+
 
 ### Filter kmers for those unique to males vs females
 
@@ -60,31 +61,27 @@ kmerkit kcount \
 
 	```console
 
-	sample  	male 	species 	
-	sample-1	1		palmeri
-	sample-2	1		palmeri
-	sample-3	0		palmeri
-	sample-4	0		palmeri
+	name        trait
+	sample-1	1
+	sample-2	1
+	sample-3	0
+	sample-4	0
 	...			
 	```
 
 ```console
-kmerkit kfilter \
-	--name amaranth-dioecy \
-	--workdir ./cookbook1 \
-	--phenos_file phenos.tsv \    # file mapping sample names to traits
-	--pheno male \                # select trait column "male"
-	--minfreq 1 0.9 \             # kmer-freq>=0.9 of samples where male=1
-	--maxfreq 1 1.0 \             # kmer-freq<=0.0 of samples where male=1
-	--minfreq 0 0.0 \             # kmer-freq>=0.0 of samples where male=0
-	--maxfreq 0 0.1	\             # kmer-freq<=0.1 of samples where male=0
-	--mincanon 1 0.25			  # kmer-freq-canonical>=0.25 of samples where male=1
+kmerkit filter \
+	--json /tmp/dioecy.json \
+	--trait trait.csv \
+	--minmap 0.0 0.9 \            # kmer-freq>=0.9 of samples where trait=1
+	--maxmap 0.1 1.0              # kmer-freq<=0.1 of samples where trait=0
 ```
 
 ??? abstract "kmerkit logged output"
 	```console
 	...
 	```
+
 The resulting files are KMC database files written with the name prefix `{workdir}/{name}-{sample-name}-kfilter.[pre,suf]`
 
 ??? info "peek at workdir file structure"
@@ -102,13 +99,12 @@ The resulting files are KMC database files written with the name prefix `{workdi
 ### Extract reads containing target kmers from samples
 
 ```console
-kmerkit kextract \
-	--name amaranth-dioecy \
-	--workdir ./cookbook1 \
-	--sample A ./data/sample-A.fastq.gz \
-	--sample B ./data/sample-B.fastq.gz \
-	--sample C ./data/sample-C.fastq.gz \
+kmerkit extract \
+	--json /tmp/dioecy.json \
+	--min-kmers-per-read 5 \
+	./data/amaranths/*.gz
 ```
+
 ??? abstract "kmerkit logged output"
 	```console
 	...
@@ -116,16 +112,13 @@ kmerkit kextract \
 
 
 ### Assemble contigs from extracted reads
-For every `--sample` provided to `kassemble` 
 
 ```console
-kmerkit kextract \
-	--name amaranth-dioecy \
-	--workdir ./cookbook1 \
-	--sample A ./data/sample-A.fastq.gz \
-	--sample B ./data/sample-B.fastq.gz \
-	--sample C ./data/sample-C.fastq.gz \
+kmerkit assemble \
+	--json /tmp/dioecy.json \
+	--assembler
 ```
+
 ??? abstract "kmerkit logged output"
 	```console
 	...

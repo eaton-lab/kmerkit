@@ -15,6 +15,7 @@ kmerkit init --name test --workdir /tmp/kmers --fastqs ...
 import os
 from kmerkit.utils import KmerkitError
 from kmerkit.kschema import Project, Kinit
+from loguru import logger
 
 
 def init_project(name, workdir, fastq_dict, force=False):
@@ -40,8 +41,9 @@ class ProjectInit:
 
         # bail out if json exists and not force
         if os.path.exists(json_path) and not force:
-            raise KmerkitError(
-                f"Project file exists at {json_path}. Use force to overwrite.")
+            msg = f"Project file exists ({json_path}), use force to overwrite."
+            logger.error(msg)
+            raise KmerkitError(msg)
 
         # check sample names for bad characters
         self.check_fastq_dict()
@@ -65,6 +67,7 @@ class ProjectInit:
         # save project file
         with open(json_path, 'w') as out:
             out.write(proj.json(indent=4))
+        logger.info(f"Initialized new kmerkit project: {json_path}")
 
 
 
