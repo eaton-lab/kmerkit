@@ -71,7 +71,7 @@ kmerkit init --name dioecy --workdir /tmp ./data/amaranth/*.gz
 ### Count kmers
 
 ```console
-kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 
+kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 --threads 20
 ```
 
 ??? abstract "kmerkit logged output"
