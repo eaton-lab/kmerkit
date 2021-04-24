@@ -13,24 +13,54 @@ graph LR
 
 ### Study description
 
-Explain and cite Amaranthus studies here...
+Here we implement the study by Neves et al. to detect a male linked 
+genomic region involved in sex determination in the dioecious plant species *Amaranthus palmeri*. This study uses pool-seq to sequence four populations composing male and female plants from two geographically distinct populations.
+
+<cite>Cátia José Neves, Maor Matzrafi, Meik Thiele, Anne Lorant, Mohsen B Mesgaran, Markus G Stetter, Male Linked Genomic Region Determines Sex in Dioecious Amaranthus palmeri, Journal of Heredity, Volume 111, Issue 7, October 2020, Pages 606–612, <a href=https://doi.org/10.1093/jhered/esaa047>https://doi.org/10.1093/jhered/esaa047</a></cite>
 
 
 ### Get the fastq data
-First we will download the fastq data files from NCBI. There are several ways
-to do this, such as the sra-tools, but because these files are especially large
-we will just use `wget` here. 
+If you wish to follow along you can dowload the data with these instructions.
 
-```bash
-# make a directory for fastq data files
-mkdir -p fastq_data/
-URL="ftp://xxx.yyy.zzz"
-wget $URL -O fastq_data/
-```
-??? abstract "wget stdout"
-	```console
-	...
-	```
+??? abstract "download fastq data using wget"
+    ```bash
+    # make a directory to store the raw fastq data files
+    mkdir -p ./fastq-data
+
+    URLS=(
+        ftp://ftp.sra.ebi.ac.uk/vol1/fastq/ERR416/001/ERR4161581/ERR4161581_1.fastq.gz
+        ftp://ftp.sra.ebi.ac.uk/vol1/fastq/ERR416/001/ERR4161582/ERR4161582_1.fastq.gz
+        ftp://ftp.sra.ebi.ac.uk/vol1/fastq/ERR416/001/ERR4161583/ERR4161583_1.fastq.gz
+        ftp://ftp.sra.ebi.ac.uk/vol1/fastq/ERR416/001/ERR4161584/ERR4161584_1.fastq.gz
+    )
+
+    # download files to the specified fastq directory
+    for url in ERR4161581 ERR4161582 ERR4161583 ERR4161584; do
+        wget $url;
+    done
+    ```
+
+??? abstract "or, download fastq data using sra-tools"
+
+    Download the latest version of the sratools from [https://github.com/ncbi/sra-tools/wiki/01.-Downloading-SRA-Toolkit](https://github.com/ncbi/sra-tools/wiki/01.-
+    Downloading-SRA-Toolkit) by selecting the compiled binaries that are 
+    appropriate for your system (e.g., Linux or MacOSX). (I really do 
+    recommend that you use the latest version since this software is updated
+    frequently and does not maintain compatibility with older versions. Follow
+    the instructions to setup gcloud or aws to dramatically improve speed.)
+    Then run the command below to download the fastq data for this study 
+    into a new directory. The total filesize will be about 140Gb.
+
+    ```bash
+    # make a directory to store the raw fastq data files
+    mkdir -p ./fastq-data
+
+    # download files to the specified fastq directory
+    for run in ERR4161581 ERR4161582 ERR4161583 ERR4161584; do
+        fasterq-dump --progress --outdir ./fastq-data --temp /tmp $run;
+    done
+    ```
+
 
 ### Initialize a new project
 
