@@ -3,24 +3,17 @@
 """
 A Class object for read trimming and subsampling reads with fastp.
 
-tool = ReadTrimming(
-	read1='samp_R1.fastq', 
-	read2='samp_R2.fastq',
-	workdir='/tmp',
-	subsample=1000,
-)
-tool.trim_reads()
-print(tool.parse_stats_from_json())
-tool.cleanup()
+kmerkit trim -j test.json --subsample 1000 --cores 20 
 """
 
 import os
 import json
 import subprocess
 import concurrent.futures
+import numpy as np
 from loguru import logger
 from kmerkit.kmctools import FASTPBIN
-from kmerkit.utils import KmerkitError
+from kmerkit.utils import KmerkitError, num_cpus
 from kmerkit.kschema import Project, KtrimData, KtrimBase, KtrimParams
 
 
@@ -55,7 +48,7 @@ class Ktrim:
             raise KmerkitError("Preventing data overwrite")        
 
 
-    def run(self, force=False, cores=None):
+    def run(self, force=False, threads=None, workers=None):
         """
         Run fastp on multiple samples in parallel. Each job uses 
         approximately 2 threads, so we submit cores / 2 jobs.
@@ -67,21 +60,27 @@ class Ktrim:
         # store sample results for KtrimData
         data = {}
 
-        # set cores values
-        if cores == 0:
-            cores = None
-        if cores is not None:
-            cores = int(cores / 2)
+        # set cores values to limit njobs to ncores / 6
+        if workers in [0, None]:
+            workers = max(1, int(np.ceil(num_cpus() / 6)))
+        threads = (threads if threads else 4)
+        logger.debug(f"workers={workers}; threads={threads}")        
 
+        # start jobs and store futures
         future_to_sname = {}
-        with concurrent.futures.ProcessPoolExecutor(cores) as lbview:
+        with concurrent.futures.ProcessPoolExecutor(workers) as lbview:
             for sname in self.fastq_dict:
                 read1s, read2s = self.fastq_dict[sname]
-                args = (read1s, read2s, self.project['workdir'], self.params['subsample'])
+                args = (
+                    read1s, read2s, 
+                    self.project['workdir'], 
+                    self.params['subsample'],
+                    threads,
+                )
                 future = lbview.submit(trim_reads, *args)
                 future_to_sname[future] = sname
 
-        # track progress and collect results
+        # track futures and collect results
         for future in concurrent.futures.as_completed(future_to_sname):
 
             # get sample
@@ -103,9 +102,9 @@ class Ktrim:
 
 
 
-def trim_reads(read1, read2, workdir, subsample):
+def trim_reads(read1, read2, workdir, subsample, threads):
     "function to run on executor"
-    tool = ReadTrimming(read1, read2, workdir, subsample)
+    tool = ReadTrimming(read1, read2, workdir, subsample, threads)
     tool.run()
     jdata = tool.parse_stats_from_json()
     return (tool.read1, tool.read2), (tool.tmp1, tool.tmp2), jdata
@@ -117,7 +116,14 @@ class ReadTrimming:
     Simple read trimming with fastp 
     https://github.com/OpenGene/fastp
     """
-    def __init__(self, read1=None, read2=None, workdir="/tmp", subsample=None):
+    def __init__(
+        self, 
+        read1=None, 
+        read2=None, 
+        workdir="/tmp", 
+        subsample=None,
+        threads=None,
+        ):
 
         # input args
         self.read1 = os.path.realpath(os.path.expanduser(read1))
@@ -128,6 +134,7 @@ class ReadTrimming:
         self.workdir = os.path.realpath(os.path.expanduser(workdir))
         self.paired = read2 is not None
         self.subsample = subsample
+        self.threads = threads
 
         # output file paths (do not bother gzipping since these are tmp files)
         basename = os.path.basename(read1).rsplit(".fastq", 1)[0]
@@ -174,6 +181,10 @@ class ReadTrimming:
         if self.subsample:
             cmd.extend(["--reads_to_process", str(self.subsample)])
 
+        # specify number of threads
+        if self.threads:
+            cmd.extend(["--thread", str(self.threads)])
+
         # logger record
         logger.debug(" ".join(cmd))
 
@@ -197,10 +208,6 @@ class ReadTrimming:
         with open(self.json, 'r') as indata:
             jdata = json.loads(indata.read())
         return {i: jdata[i] for i in ("summary", "filtering_result")}
-        # orig_reads = int(jdata['summary']['before_filtering']['total_reads'])
-        # new_reads = int(jdata['summary']['after_filtering']['total_reads'])
-        # return orig_reads, new_reads
-
 
 
     def cleanup(self):
@@ -232,11 +239,3 @@ if __name__ == '__main__':
 
     ktr = Ktrim('/tmp/trimtest.json')
     ktr.run()
-    # print(proj.json(indent=2))
-
-    # tool = ReadTrimming(read1=FASTQ, read2=None, workdir="/tmp", subsample=10000)
-    # tool.trim_reads()
-
-    # check results and cleanup
-    # print(tool.parse_stats_from_json())
-    # tool.cleanup()
