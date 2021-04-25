@@ -222,10 +222,10 @@ def count(
 @app.command()
 def filter(
     json_file: Path = typer.Option(..., '-j', '--json'),
-    traits: Optional[Path] = typer.Option(None, '--traits-file'),
     group0: Optional[List[str]] = typer.Option(None, '--group0', '-0'),
     group1: Optional[List[str]] = typer.Option(None, '--group1', '-1'),
-    min_cov: float = typer.Option(0.5),
+    traits: Optional[Path] = typer.Option(None, '--traits-file'),
+    min_cov: float = typer.Option(0.0),
     min_map: Tuple[float,float] = typer.Option((0.0, 0.1)),
     max_map: Tuple[float,float] = typer.Option((0.1, 1.0)),
     loglevel: LogLevel = LogLevel.INFO,
