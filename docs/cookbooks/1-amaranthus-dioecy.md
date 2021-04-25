@@ -25,7 +25,12 @@ genomic region involved in sex determination in the dioecious plant species *Ama
 
 
 ## Fetch fastq data
-If you wish to follow along you can dowload the data from ERA with these instructions:
+If you wish to follow along you can dowload the data from ERA with the
+instructions below. The samples are 
+ERR4161581 (*California_male_pool*),
+ERR4161582 (*California_female_pool*),
+ERR4161583 (*Kansas_male_pool*),
+ERR4161584 (*Kansas_female_pool*)
 <!-- 
 ??? abstract "download fastq data using wget"
     ```bash
@@ -140,8 +145,8 @@ kmerkit stats --json /tmp/dioecy.json count
 Apply filters to identify target kmers that are enriched in one group of 
 samples versus another. In this case, we aim to identify male-specific kmers,
 meaning those that are present in males but not females. This can be done 
-by setting a high `min_map` for group 1 (kmers must be present in group 1) and 
-setting a low `max_map` for group 0 (kmers cannot be present in group 0). We
+by setting a high `min-map` for group 1 (kmers must be present in group 1) and 
+setting a low `max-map` for group 0 (kmers cannot be present in group 0). We
 must also assign samples to groups 0 or 1. For studies with many samples this
 is most easily done by entering a CSV file (see the kfilter docs section). Here
 because there are few samples I use the simpler option of entering the sample

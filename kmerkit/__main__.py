@@ -63,13 +63,13 @@ def docs_callback(value: bool):
     if value:
         typer.echo("Opening https://eaton-lab.org/kmerkit in default browser")
         typer.launch("https://eaton-lab.org/kmerkit")
-        typer.Exit()
+        raise typer.Exit()
 
 
 @app.callback()
 def main(
     version: bool = typer.Option(None, "--version", "-v", callback=version_callback, is_eager=True, help="print version and exit."),
-    docs: bool = typer.Option(None, "--docs", callback=docs_callback, help="Open documentation in browser."),
+    docs: bool = typer.Option(None, "--docs", callback=docs_callback, is_eager=True, help="Open documentation in browser."),
     ):
     """
     Call kmerkit commands to access tools in the kmerkit toolkit,
@@ -222,7 +222,9 @@ def count(
 @app.command()
 def filter(
     json_file: Path = typer.Option(..., '-j', '--json'),
-    traits: Path = typer.Option(...),
+    traits: Optional[Path] = typer.Option(None, '--traits-file'),
+    group0: Optional[List[str]] = typer.Option(None, '--group0', '-0'),
+    group1: Optional[List[str]] = typer.Option(None, '--group1', '-1'),
     min_cov: float = typer.Option(0.5),
     min_map: Tuple[float,float] = typer.Option((0.0, 0.1)),
     max_map: Tuple[float,float] = typer.Option((0.1, 1.0)),
@@ -248,7 +250,12 @@ def filter(
     )
 
     # fake data
-    traits_dict = get_traits_dict_from_csv(traits)
+    if traits:
+        traits_dict = get_traits_dict_from_csv(traits)
+    else:
+        traits_dict = {0: [], 1: []}
+    traits_dict[0].extend(group0)
+    traits_dict[1].extend(group1)
 
     # load database with phenotypes data
     kgp = Kfilter(
@@ -259,7 +266,7 @@ def filter(
         max_map={0: max_map[0], 1: max_map[1]},        
         min_map_canon={0: 0.0, 1: 0.5},
     )
-    kgp.run()
+    kgp.run(force=force)
 
 
 @app.command()
