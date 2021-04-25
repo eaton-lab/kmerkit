@@ -24,7 +24,7 @@ import os
 from enum import Enum
 import tempfile
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import typer
 import pandas as pd
 from kmerkit import __version__
@@ -51,10 +51,28 @@ class LogLevel(str, Enum):
 # creates the top-level kmerkit app
 app = typer.Typer(add_completion=True, context_settings=CONTEXT_SETTINGS)
 
+
+def version_callback(value: bool):
+    "Part 1 of overly complicated typer --version option"
+    if value:
+        typer.echo(f"kmerkit {__version__}")
+        raise typer.Exit()
+
+def docs_callback(value: bool):
+    "function to open docs"
+    if value:
+        typer.echo("Opening https://eaton-lab.org/kmerkit in default browser")
+        typer.launch("https://eaton-lab.org/kmerkit")
+        typer.Exit()
+
+
 @app.callback()
-def callback():
+def main(
+    version: bool = typer.Option(None, "--version", "-v", callback=version_callback, is_eager=True, help="print version and exit."),
+    docs: bool = typer.Option(None, "--docs", callback=docs_callback, help="Open documentation in browser."),
+    ):
     """
-    Call kmerkit commands to access tools in the kmerkit toolkit, 
+    Call kmerkit commands to access tools in the kmerkit toolkit,
     and kmerkit COMMAND -h to see help options for each tool
     (e.g., kmerkit kcount -h)
     """
@@ -62,12 +80,6 @@ def callback():
         f"kmerkit (v.{__version__}): the kmer operations toolkit",
         fg=typer.colors.MAGENTA, bold=True,
     )
-
-@app.command()
-def docs():
-    "Opens the kmerkit documentation in a browser"
-    typer.echo("Opening kmerkits documentation in browser")
-    typer.launch("https://kmerkit.readthedocs.io")
 
 
 @app.command()
