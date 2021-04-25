@@ -122,7 +122,7 @@ class Kextract:
         """
         # Here broken into [kmc_tools filter database <options>]
         cmd = [
-            KMTBIN, 
+            KMTBIN, "-hp", "-t8",
             "filter", 
             str(self.project['kfilter']['data']['database_passed']),
         ]
