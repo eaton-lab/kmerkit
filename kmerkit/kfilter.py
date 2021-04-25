@@ -232,7 +232,7 @@ class Kfilter:
             out.write(complex_string)
 
         # cmd: 'kmer_tools [global_params] complex <operations file>'
-        cmd = [KMTBIN, "-hp", "-t", "8", "complex", complex_file]
+        cmd = [KMTBIN, "-hp", "-t8", "complex", complex_file]
 
         # call subprocess on the command
         out = subprocess.run(
@@ -254,7 +254,7 @@ class Kfilter:
         """
         for sname in self.database:
             cmd = [
-                KMTBIN, "-hp", "-t", "8",
+                KMTBIN, "-hp", "-t8",
                 "transform",
                 self.database[sname]['database'],
                 "set_counts", 
@@ -435,7 +435,7 @@ class Kfilter:
         not in the union of filtered kmers.
         """
         cmd = [
-            KMTBIN, "-hp", "-t", "8",
+            KMTBIN, "-hp", "-t8",
             "simple",
             f"{self.prefix}_union",
             f"{self.prefix}_filtered",
