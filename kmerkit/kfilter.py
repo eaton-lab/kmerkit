@@ -249,6 +249,7 @@ class Kfilter:
 
     def get_all_single_counts(self):
         """
+        PARALLEL.
         Prepare single count database of every sample which will be used
         for presence/absence set arithmetic in filters.
         """
@@ -257,8 +258,7 @@ class Kfilter:
                 KMTBIN, "-hp", "-t8",
                 "transform",
                 self.database[sname]['database'],
-                "set_counts", 
-                "1",
+                "set_counts", "1",
                 f"{self.prefix}_{sname}_count1",
             ]
             logger.debug(" ".join(cmd))
@@ -278,7 +278,7 @@ class Kfilter:
         self.call_complex(
             dbdict=dbdict,
             oper="union",
-            min_depth=1,
+            min_depth=0,
             max_depth=1000000000,
             out_name='union',
         )
@@ -298,7 +298,7 @@ class Kfilter:
             dbdict=dbdict,
             oper="union",
             min_depth=0,
-            max_depth=max(0, self.params['min_cov'] - 1),
+            max_depth=max(1, self.params['min_cov'] - 1),
             out_name='min_cov-filtered',
         )
 
@@ -423,7 +423,7 @@ class Kfilter:
         self.call_complex(
             dbdict=dbdict,
             oper="union",
-            min_depth=0,
+            min_depth=1,
             max_depth=3,
             out_name='filtered'
         )
