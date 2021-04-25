@@ -276,7 +276,7 @@ def extract(
     keep_paired: bool = typer.Option(True),
     loglevel: LogLevel = LogLevel.INFO,
     force: bool = typer.Option(False, help="overwrite existing"),  
-    samples: List[str] = typer.Argument(None),
+    samples: Optional[List[str]] = typer.Argument(None),
     ):
     """
     Extract reads from fastq/a files containing target kmers.
@@ -297,7 +297,7 @@ def extract(
         fg=typer.colors.MAGENTA,
         bold=False,
     )
-    set_loglevel(loglevel)
+    set_loglevel(loglevel)  
 
     try:
         kex = Kextract(

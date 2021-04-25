@@ -79,6 +79,17 @@ class Kextract:
         init_set = set(self.project['kinit']['data'])
         input_set = set(samples)
 
+        # if input is None then use database
+        if not input_set:
+            if self.project.get('ktrim'):
+                self.fastq_dict = {
+                    sname: self.project['ktrim']['data'][sname]['data_out']
+                    for sname in self.project['ktrim']['data']
+                }
+            else:
+                self.fastq_dict = self.project['kinit']['data']
+            return 
+
         samples = set()
         for iset in input_set:
             # special keyword to select kfilter group 0
