@@ -157,23 +157,11 @@ to group 0 and 1, respectively.
 ```bash
 kmerkit filter \
 	--json /tmp/dioecy.json \
-	-0 ERR4161581 \
-	-0 ERR4161582 \
-	-1 ERR4161583 \
-	-1 ERR4161584 \
-	--min_map 0.0 0.9 \
-	--max_map 0.1 1.0  
+	-1 'ERR4161581' -1 'ERR4161583' \
+	-0 'ERR4161582' -0 'ERR4161584' \
+	--min_map 0.0 0.5 \
+	--max_map 0.0 1.0  
 ```
-
-<!-- Will probably switch to this...
-```bash
-# Alt idea that would allow >2 groups...
-kmerkit filter \
-	--json /tmp/dioecy.json \
-	--group 0 0.0 0.1 'ERR4161581' 'ERR4161582' \
-	--group 1 0.5 1.0 'ERR416158[3-4]'   # allows for regex name selectors
-```
- -->
 
 ```bash
 kmerkit stats -j /tmp/dioecy.json filter
@@ -182,6 +170,7 @@ kmerkit stats -j /tmp/dioecy.json filter
 	```console
 	...
 	```
+
 
 ### Extract reads 
 Now that we've identified a set of target kmers we will extract reads from 
