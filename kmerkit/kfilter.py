@@ -224,7 +224,7 @@ class Kfilter:
             'output_string': output_str,
             'output_params': oparams_str,
         })
-        logger.debug(complex_string)
+        logger.debug(complex_string)      
 
         # write to a tmp file
         complex_file = self.prefix + "_complex.txt"
@@ -232,7 +232,7 @@ class Kfilter:
             out.write(complex_string)
 
         # cmd: 'kmer_tools [global_params] complex <operations file>'
-        cmd = [KMTBIN, "complex", complex_file]
+        cmd = [KMTBIN, "-hp", "-t", "8", "complex", complex_file]
 
         # call subprocess on the command
         out = subprocess.run(
@@ -247,165 +247,6 @@ class Kfilter:
 
 
 
-    # def filter_canon(self):
-    #     """
-    #     Filter kmers that tend to only occur in one form or the
-    #     other, likely due to adapters. 
-
-    #     Returns:
-    #     None. 
-    #     Writes kmc database prefix=<workdir>/{name}_kfilter_canon-filtered
-    #     """
-    #     # database file for storing counts of kmers being present in both forms
-    #     bothdb = self.prefix + "_canonsums"
-
-    #     # iterate over samples
-    #     for sidx, sname in enumerate(self.samples):
-
-    #         # get fastq dict w/ fastqs used in kcounts
-    #         fastq_dict = {sname: self.kcountdf.at[sname, "fastqs"].split(",")}
-
-    #         # get options used in kcounts, but not mindepth (must be 1)
-    #         kcount_params = {
-    #             'workdir': self.workdir,
-    #             'name': 'tmp-canon',
-    #             'fastq_dict': fastq_dict,
-    #             'kmersize': self.kcountdf.at[sname, "kmersize"],
-    #             'subsample_reads': self.kcountdf.at[sname, "subsample_reads"],
-    #             'trim_reads': self.kcountdf.at[sname, "trimmed"],
-    #             'mindepth': 1, 
-    #             'maxdepth': self.kcountdf.at[sname, "maxdepth"],
-    #             'maxcount': self.kcountdf.at[sname, "maxcount"],
-    #             'canonical': 0,
-    #         }
-
-    #         # count non-canon kmers in sample with same kcount args except -ci1
-    #         logger.info(f"counting non-canonical kmers [{sname}]")
-    #         kco = Kcount(**kcount_params)
-    #         kco.run()
-    #         nonc_db = os.path.join(self.workdir, f"kcount_tmp-canon_{sname}")
-
-    #         # subtract counts of non-canon from canon, only keep if -ci1, 
-    #         # these are the kmers observed occurring both ways in this sample.
-    #         canon_db = self.kcountdf.at[sname, "database"]
-    #         cmd = [
-    #             KMTBIN,
-    #             "-hp",                
-    #             "simple",
-    #             canon_db, 
-    #             nonc_db, 
-    #             "counters_subtract",
-    #             self.prefix + "_tmp1",  # tmp1=kmers occurring both ways
-    #             "-ci1"
-    #         ]
-    #         logger.debug(" ".join(cmd))            
-    #         subprocess.run(cmd, check=True)
-
-    #         # set count =1 on a tmp copy of bothways kmers db
-    #         cmd = [
-    #             KMTBIN,
-    #             "-hp",                
-    #             "transform",
-    #             self.prefix + "_tmp1",
-    #             "set_counts", 
-    #             "1",
-    #             self.prefix + "_tmp2",  # tmp2=kmers w/ count=1
-    #         ]
-    #         logger.debug(" ".join(cmd))
-    #         subprocess.run(cmd, check=True)
-
-    #         # if the first sample then simply copy tmp2 to BOTHDB
-    #         if not sidx:
-    #             for suff in [".kmc_suf", ".kmc_pre"]:                
-    #                 shutil.copyfile(
-    #                     self.prefix + "_tmp2" + suff,
-    #                     bothdb + suff,
-    #                 )
-
-    #         # if not, then make copy of BOTHDB, and fill BOTHDB using kmctools
-    #         else:
-    #             for suff in [".kmc_suf", ".kmc_pre"]:                                
-    #                 shutil.copyfile(
-    #                     bothdb + suff,
-    #                     self.prefix + "_tmp3" + suff,
-    #                 )
-
-    #             # fill bothdb as the sum union of tmp2 and tmp3
-    #             cmd = [
-    #                 KMTBIN,
-    #                 "-hp",
-    #                 "simple",
-    #                 self.prefix + "_tmp2",   # kmers w/ count=1 from this samp
-    #                 self.prefix + "_tmp3",   # kmers w/ count=sum so far
-    #                 "union",
-    #                 bothdb,
-    #                 "-ci1",
-    #                 "-cs{}".format(len(self.samples) + 1),
-    #             ]
-    #             logger.debug(" ".join(cmd))
-    #             subprocess.run(cmd, check=True)              
-                
-    #         # cleanup
-    #         logger.debug(f"removing database tmp-canon_{sname}")
-
-    #     # get stats on full canonized set
-    #     sumkmers = info(self.prefix + "_canonsums")
-
-    #     # dump and calculate stats on canonsums counts
-    #     dump(self.prefix + "_canonsums", write_kmers=False)
-    #     with open(self.prefix + "_canonsums_kmers.txt", 'r') as indat:
-    #         counts = np.loadtxt(indat, dtype=np.uint16)
-    #         counts = counts / len(self.samples)
-    #         mcanon = counts.mean()
-    #         scanon = counts.std()
-    #         del counts
-
-    #     # report statistics on canonization
-    #     logger.info(
-    #         "kmers (proportion) in canonized form: "
-    #         f"mean={mcanon:.2f}; std={scanon:.2f}"
-    #     )
-
-    #     # report a warning if too few are canonized:
-    #     if mcanon < 0.1:
-    #         logger.warning(
-    #             "Very few kmers are canonized in this dataset. This may "
-    #             "indicate your data is strand-specific (e.g., ddRAD) in "
-    #             "which case you should set mincov_canon=0.0. Alternatively, "
-    #             "if WGS reads, then your data may be very low coverage."
-    #         )            
-
-    #     # filter BOTHDB to get kmers in mincanon prop. of samples (CANON)
-    #     mincanon_asint = int(np.floor(self.mincov_canon * len(self.samples)))
-    #     cmd = [
-    #         KMTBIN, 
-    #         "transform",
-    #         bothdb,
-    #         "reduce",
-    #         self.prefix + "_mincanon-filter", 
-    #         "-ci{}".format(mincanon_asint),
-    #         "-cx1000000000",
-    #         # "-cs255",        # 65K
-    #     ]
-    #     logger.debug(" ".join(cmd))
-    #     subprocess.run(cmd, check=True)              
-
-    #     # calculate and report statistics on filtered canonized set.
-    #     sumfiltkmers = info(self.prefix + "_mincanon-filter")
-    #     logger.info(f"kmers filtered by mincov_canon: {sumkmers - sumfiltkmers}")
-
-    #     # clean up tmp files
-    #     countpre = os.path.join(self.workdir, "kcount")
-    #     os.remove(countpre + "_tmp-canon.csv")
-    #     for sname in self.samples:
-    #         os.remove(countpre + "_tmp-canon_" + sname + ".kmc_pre")
-    #         os.remove(countpre + "_tmp-canon_" + sname + ".kmc_suf")            
-    #     os.remove(self.prefix + "_canonsums_kmers.txt")
-    #     for suffix in ["tmp1", "tmp2", "tmp3", "canonsums"]:
-    #         os.remove(self.prefix + "_" + suffix + ".kmc_pre")
-    #         os.remove(self.prefix + "_" + suffix + ".kmc_suf")            
-
-
     def get_all_single_counts(self):
         """
         Prepare single count database of every sample which will be used
@@ -413,8 +254,7 @@ class Kfilter:
         """
         for sname in self.database:
             cmd = [
-                KMTBIN,
-                "-hp",                
+                KMTBIN, "-hp", "-t", "8",
                 "transform",
                 self.database[sname]['database'],
                 "set_counts", 
@@ -595,8 +435,7 @@ class Kfilter:
         not in the union of filtered kmers.
         """
         cmd = [
-            KMTBIN,
-            "-hp",                
+            KMTBIN, "-hp", "-t", "8",
             "simple",
             f"{self.prefix}_union",
             f"{self.prefix}_filtered",
@@ -680,6 +519,167 @@ class Kfilter:
         # logger.info(Project(**self.project).json(indent=4))
         with open(self.json_file, 'w') as out:
             out.write(Project(**self.project).json(indent=4))
+
+
+
+# def filter_canon(self):
+#     """
+#     Filter kmers that tend to only occur in one form or the
+#     other, likely due to adapters. 
+
+#     Returns:
+#     None. 
+#     Writes kmc database prefix=<workdir>/{name}_kfilter_canon-filtered
+#     """
+#     # database file for storing counts of kmers being present in both forms
+#     bothdb = self.prefix + "_canonsums"
+
+#     # iterate over samples
+#     for sidx, sname in enumerate(self.samples):
+
+#         # get fastq dict w/ fastqs used in kcounts
+#         fastq_dict = {sname: self.kcountdf.at[sname, "fastqs"].split(",")}
+
+#         # get options used in kcounts, but not mindepth (must be 1)
+#         kcount_params = {
+#             'workdir': self.workdir,
+#             'name': 'tmp-canon',
+#             'fastq_dict': fastq_dict,
+#             'kmersize': self.kcountdf.at[sname, "kmersize"],
+#             'subsample_reads': self.kcountdf.at[sname, "subsample_reads"],
+#             'trim_reads': self.kcountdf.at[sname, "trimmed"],
+#             'mindepth': 1, 
+#             'maxdepth': self.kcountdf.at[sname, "maxdepth"],
+#             'maxcount': self.kcountdf.at[sname, "maxcount"],
+#             'canonical': 0,
+#         }
+
+#         # count non-canon kmers in sample with same kcount args except -ci1
+#         logger.info(f"counting non-canonical kmers [{sname}]")
+#         kco = Kcount(**kcount_params)
+#         kco.run()
+#         nonc_db = os.path.join(self.workdir, f"kcount_tmp-canon_{sname}")
+
+#         # subtract counts of non-canon from canon, only keep if -ci1, 
+#         # these are the kmers observed occurring both ways in this sample.
+#         canon_db = self.kcountdf.at[sname, "database"]
+#         cmd = [
+#             KMTBIN,
+#             "-hp",                
+#             "simple",
+#             canon_db, 
+#             nonc_db, 
+#             "counters_subtract",
+#             self.prefix + "_tmp1",  # tmp1=kmers occurring both ways
+#             "-ci1"
+#         ]
+#         logger.debug(" ".join(cmd))            
+#         subprocess.run(cmd, check=True)
+
+#         # set count =1 on a tmp copy of bothways kmers db
+#         cmd = [
+#             KMTBIN,
+#             "-hp",                
+#             "transform",
+#             self.prefix + "_tmp1",
+#             "set_counts", 
+#             "1",
+#             self.prefix + "_tmp2",  # tmp2=kmers w/ count=1
+#         ]
+#         logger.debug(" ".join(cmd))
+#         subprocess.run(cmd, check=True)
+
+#         # if the first sample then simply copy tmp2 to BOTHDB
+#         if not sidx:
+#             for suff in [".kmc_suf", ".kmc_pre"]:                
+#                 shutil.copyfile(
+#                     self.prefix + "_tmp2" + suff,
+#                     bothdb + suff,
+#                 )
+
+#         # if not, then make copy of BOTHDB, and fill BOTHDB using kmctools
+#         else:
+#             for suff in [".kmc_suf", ".kmc_pre"]:                                
+#                 shutil.copyfile(
+#                     bothdb + suff,
+#                     self.prefix + "_tmp3" + suff,
+#                 )
+
+#             # fill bothdb as the sum union of tmp2 and tmp3
+#             cmd = [
+#                 KMTBIN,
+#                 "-hp",
+#                 "simple",
+#                 self.prefix + "_tmp2",   # kmers w/ count=1 from this samp
+#                 self.prefix + "_tmp3",   # kmers w/ count=sum so far
+#                 "union",
+#                 bothdb,
+#                 "-ci1",
+#                 "-cs{}".format(len(self.samples) + 1),
+#             ]
+#             logger.debug(" ".join(cmd))
+#             subprocess.run(cmd, check=True)              
+            
+#         # cleanup
+#         logger.debug(f"removing database tmp-canon_{sname}")
+
+#     # get stats on full canonized set
+#     sumkmers = info(self.prefix + "_canonsums")
+
+#     # dump and calculate stats on canonsums counts
+#     dump(self.prefix + "_canonsums", write_kmers=False)
+#     with open(self.prefix + "_canonsums_kmers.txt", 'r') as indat:
+#         counts = np.loadtxt(indat, dtype=np.uint16)
+#         counts = counts / len(self.samples)
+#         mcanon = counts.mean()
+#         scanon = counts.std()
+#         del counts
+
+#     # report statistics on canonization
+#     logger.info(
+#         "kmers (proportion) in canonized form: "
+#         f"mean={mcanon:.2f}; std={scanon:.2f}"
+#     )
+
+#     # report a warning if too few are canonized:
+#     if mcanon < 0.1:
+#         logger.warning(
+#             "Very few kmers are canonized in this dataset. This may "
+#             "indicate your data is strand-specific (e.g., ddRAD) in "
+#             "which case you should set mincov_canon=0.0. Alternatively, "
+#             "if WGS reads, then your data may be very low coverage."
+#         )            
+
+#     # filter BOTHDB to get kmers in mincanon prop. of samples (CANON)
+#     mincanon_asint = int(np.floor(self.mincov_canon * len(self.samples)))
+#     cmd = [
+#         KMTBIN, 
+#         "transform",
+#         bothdb,
+#         "reduce",
+#         self.prefix + "_mincanon-filter", 
+#         "-ci{}".format(mincanon_asint),
+#         "-cx1000000000",
+#         # "-cs255",        # 65K
+#     ]
+#     logger.debug(" ".join(cmd))
+#     subprocess.run(cmd, check=True)              
+
+#     # calculate and report statistics on filtered canonized set.
+#     sumfiltkmers = info(self.prefix + "_mincanon-filter")
+#     logger.info(f"kmers filtered by mincov_canon: {sumkmers - sumfiltkmers}")
+
+#     # clean up tmp files
+#     countpre = os.path.join(self.workdir, "kcount")
+#     os.remove(countpre + "_tmp-canon.csv")
+#     for sname in self.samples:
+#         os.remove(countpre + "_tmp-canon_" + sname + ".kmc_pre")
+#         os.remove(countpre + "_tmp-canon_" + sname + ".kmc_suf")            
+#     os.remove(self.prefix + "_canonsums_kmers.txt")
+#     for suffix in ["tmp1", "tmp2", "tmp3", "canonsums"]:
+#         os.remove(self.prefix + "_" + suffix + ".kmc_pre")
+#         os.remove(self.prefix + "_" + suffix + ".kmc_suf")            
+
 
 
 if __name__ == "__main__":
