@@ -36,6 +36,7 @@ from kmerkit.ktrim import Ktrim
 from kmerkit.kcount import Kcount
 from kmerkit.kfilter import Kfilter
 from kmerkit.kextract import Kextract
+from kmerkit.kdump import Kdump
 
 # add the -h option for showing help
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -74,7 +75,7 @@ def main(
     """
     Call kmerkit commands to access tools in the kmerkit toolkit,
     and kmerkit COMMAND -h to see help options for each tool
-    (e.g., kmerkit kcount -h)
+    (e.g., kmerkit count -h)
     """
     typer.secho(
         f"kmerkit (v.{__version__}): the kmer operations toolkit",
@@ -155,7 +156,7 @@ def init(
 @app.command(context_settings=CONTEXT_SETTINGS)
 def count(
     json_file: Path = typer.Option(..., "-j", "--json"),
-    kmer_size: int = typer.Option(17, min=2),
+    kmer_size: int = typer.Option(17, "-k", "--kmer-size", min=2),
     min_depth: int = typer.Option(1, min=1),
     max_depth: int = typer.Option(int(1e9), min=1),
     max_count: int = typer.Option(65535, min=255),
@@ -219,12 +220,12 @@ def count(
 
 
 
-@app.command()
-def filter(
+@app.command(name='filter')
+def kfilter(
     json_file: Path = typer.Option(..., '-j', '--json'),
     group0: Optional[List[str]] = typer.Option(None, '--group0', '-0'),
     group1: Optional[List[str]] = typer.Option(None, '--group1', '-1'),
-    traits: Optional[Path] = typer.Option(None, '--traits-file'),
+    traits_file: Optional[Path] = typer.Option(None, '--traits-file'),
     min_cov: float = typer.Option(0.0),
     min_map: Tuple[float,float] = typer.Option((0.0, 0.1)),
     max_map: Tuple[float,float] = typer.Option((0.1, 1.0)),
@@ -250,23 +251,26 @@ def filter(
     )
 
     # fake data
-    if traits:
-        traits_dict = get_traits_dict_from_csv(traits)
+    if traits_file:
+        traits_dict = get_traits_dict_from_csv(traits_file)
     else:
         traits_dict = {0: [], 1: []}
     traits_dict[0].extend(group0)
     traits_dict[1].extend(group1)
 
     # load database with phenotypes data
-    kgp = Kfilter(
-        json_file=json_file,
-        traits=traits_dict,
-        min_cov=min_cov,
-        min_map={0: min_map[0], 1: min_map[1]},
-        max_map={0: max_map[0], 1: max_map[1]},        
-        min_map_canon={0: 0.0, 1: 0.5},
-    )
-    kgp.run(force=force)
+    try:
+        kgp = Kfilter(
+            json_file=json_file,
+            traits_dict=traits_dict,
+            min_cov=min_cov,
+            min_map={0: min_map[0], 1: min_map[1]},
+            max_map={0: max_map[0], 1: max_map[1]},        
+            min_map_canon={0: 0.0, 1: 0.5},
+        )
+        kgp.run(force=force)
+    except KmerkitError:
+        typer.Abort()
 
 
 @app.command()
@@ -276,6 +280,8 @@ def extract(
     keep_paired: bool = typer.Option(True),
     loglevel: LogLevel = LogLevel.INFO,
     force: bool = typer.Option(False, help="overwrite existing"),  
+    workers: int = typer.Option(1, help="N worker processes"),
+    threads: int = typer.Option(None, help="N threads per worker"),
     samples: Optional[List[str]] = typer.Argument(None),
     ):
     """
@@ -306,7 +312,7 @@ def extract(
             min_kmers_per_read=min_kmers_per_read,
             keep_paired=keep_paired,
         )
-        kex.run(force=force)
+        kex.run(force=force, workers=workers, threads=threads)
     except KmerkitError:
         typer.Abort()
 
@@ -314,8 +320,9 @@ def extract(
 @app.command()
 def trim(
     json_file: Path = typer.Option(..., "-j", "--json"),
-    subsample: int = typer.Option(None, help="subsample to N reads"),
+    subsample: float = typer.Option(None, help="subsample to N reads"),
     workers: int = typer.Option(None, help="N worker processes"),
+    # threads: int = typer.Option(None, help="N threads per worker"),
     force: bool = typer.Option(False, help="overwrite existing"),
     loglevel: LogLevel = LogLevel.INFO,    
     ):
@@ -333,6 +340,40 @@ def trim(
 
     try:
         ktr = Ktrim(json_file=json_file, subsample=subsample)
-        ktr.run(force=force, workers=workers)
+        ktr.run(force=force, workers=workers) #, threads=threads)
+    except KmerkitError:
+        typer.Abort()
+
+
+@app.command(name='dump')
+def kdump(
+    json_file: Path = typer.Option(..., "-j", "--json"),
+    min_depth: int = typer.Option(1, help="filter to >= min-depth"),
+    max_depth: int = typer.Option(100000, help="filter to <= max-depth"),
+    write_kmers: bool = typer.Option(True),
+    write_counts: bool = typer.Option(True),
+    loglevel: LogLevel = LogLevel.INFO,
+    samples: List[str] = typer.Argument(..., help="One or more sample names in kcount database"),
+    ):
+    """
+    Write kmers and/or counts to a file from a KMC database.
+
+    kmerkit dump -j test.json --min-depth 5 sample1
+    """   
+    typer.secho(
+        "dump: write kmers and/or counts to a file.",
+        fg=typer.colors.MAGENTA,
+        bold=False,
+    )
+    set_loglevel(loglevel)
+
+    try:
+        Kdump(
+            json_file, 
+            samples, 
+            min_depth, max_depth, 
+            write_kmers, write_counts,
+        ).run()
+
     except KmerkitError:
         typer.Abort()
