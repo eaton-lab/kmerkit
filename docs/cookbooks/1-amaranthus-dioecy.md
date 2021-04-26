@@ -171,20 +171,18 @@ kmerkit stats -j /tmp/dioecy.json filter
 	...
 	```
 
-
 ### Extract reads 
 Now that we've identified a set of target kmers we will extract reads from 
 fastq data files that contain these kmers. This is expected to pull out reads
 mapping to male-specific regions of the <i>A. palmeri</i> genome. Here you 
 can enter new fastq files to extract data from, or enter the names of samples
 already in the project database, which will use the (trimmed) fastq data files
-referenced in the JSON file. Here I select the two male populations.
+referenced in the JSON file. Here I don't enter any sample names, which 
+defaults to performing extractions on all 4 samples in the database (we expect
+to not recover any reads for the two female pop samples).
 
 ```bash
-kmerkit extract \
-	--json /tmp/dioecy.json \
-	--min-kmers-per-read 5 \
-	'ERR4161583' 'ERR4161584'
+kmerkit extract --json /tmp/dioecy.json --min-kmers-per-read 5
 ```
 
 ??? tip "kmerkit stats output"
