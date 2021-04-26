@@ -31,8 +31,8 @@ kmerkit filter \
 #       set of kmers. Would this be useful? ... Still need to start by 
 #       counting all non-con kmers in each sample...
 
-
 import os
+import re
 import itertools
 import subprocess
 import numpy as np
@@ -87,12 +87,12 @@ class Kfilter:
     ----------
     None. Writes kmc binary database to prefix <workdir>/kfilter_{name}
     """
-    def __init__(self, json_file, traits, min_cov, min_map, max_map, min_map_canon):
+    def __init__(self, json_file, traits_dict, min_cov, min_map, max_map, min_map_canon):
 
         # load user inputs
         self.json_file = json_file
         self.project = Project.parse_file(json_file).dict()
-        self.traits_to_samples = traits
+        self.traits_to_samples = traits_dict
 
         # will be subsampled down to matching taxa
         self.database = self.project['kcount']['data']
@@ -122,15 +122,39 @@ class Kfilter:
         # converts filter params to integers and checks
         self.filters_to_ints()
 
+        # keep track of database
+        self.dbs = {}
+
 
 
     def select_samples(self):
         """
         Filter samples to those present in both database and traits_dict
         """
-        # check that names in kcountdf match those in traits
+        # if any traits_dict samples can be regex expanded
+        # self.traits_to_samples = None
+
+        # names in count db: {'aaa', 'bbb', 'ccc', 'ccd', 'cce'}
         setp = set(self.database)
+
+        # names in traits: {'aaa', 'bbb', 'cc[c,d,e]'}
         sets = set(itertools.chain(*self.traits_to_samples.values()))
+
+        # try to regex expand non-matching string names
+        for key in self.traits_to_samples:
+            snames = self.traits_to_samples[key]
+            for sname in snames:
+                if sname not in setp:
+                    search = (re.match(sname, i) for i in setp)
+                    matches = [i.string for i in search if i]
+                    if matches:
+                        logger.debug(f"{sname} expanded to {matches}")
+                        self.traits_to_samples[key].extend(matches)
+
+        # names in traits: {'aaa', 'bbb', 'ccc', 'ccd', 'ccf'}
+        sets = set(itertools.chain(*self.traits_to_samples.values()))
+
+        # build reverse dict
         revtraits = {}
         for key in self.traits_to_samples:
             for sample in self.traits_to_samples[key]:
@@ -138,12 +162,10 @@ class Kfilter:
 
         # raise an error if no names overlap
         if setp.isdisjoint(sets):
-            db_names = ", ".join(setp)
-            tr_names = ", ".join(sets)
             msg = (
-                "Sample names in pheno do not match names in database:\n"
-                f"  KMER_DATABASE: {db_names}...\n"
-                f"  TRAITS:   {tr_names}...\n"               
+                "Sample names entered do not match names in database:\n"
+                f"  KMER_DATABASE: {', '.join(setp)}\n"
+                f"  TRAITS:   {', '.join(sets)}"
             )
             logger.error(msg)
             raise KmerkitError(msg)
@@ -168,7 +190,6 @@ class Kfilter:
         ]
 
 
-
     def filters_to_ints(self):
         """
         Converts filter parameter float values to integers because that
@@ -176,19 +197,32 @@ class Kfilter:
         """
         # int encode min_cov
         if isinstance(self.params['min_cov'], float):
-            self.params['min_cov'] = int(
+            self.params['min_cov'] = int(max(1, 
                 np.floor(self.params['min_cov'] * len(self.database)))
+            )
             logger.debug(f"int encoded min_cov: {self.params['min_cov']}")
 
         # int encoded map values
         for key in [0, 1]:
             nsamples = len(self.traits_to_samples[key])
             assert nsamples, f"No samples are set to state={key}"
-            for param in ['min_map', 'max_map', 'min_map_canon']:
-                value = int(np.floor(self.params[param][key] * nsamples))
-                self.params[param][key] = value
-                logger.debug(f"int encoded {param}[{key}]: {value}")
 
+            self.params['min_map'][key] = int(
+                int(np.floor(self.params['min_map'][key] * nsamples))
+            )
+            self.params['max_map'][key] = int(
+                max(self.params['min_map'][key],
+                    min(nsamples,
+                        int(np.floor(self.params['max_map'][key] * nsamples)))
+            ))
+            self.params['min_map_canon'] = 100
+
+        logger.debug(f"int encoded min_map: {self.params['min_map']}")
+        logger.debug(f"int encoded max_map: {self.params['max_map']}")
+            # for param in ['min_map', 'max_map', 'min_map_canon']:
+            #     value = int(np.floor(self.params[param][key] * nsamples))
+            #     self.params[param][key] = value
+            #     logger.debug(f"int encoded {param}[{key}]: {value}")
 
 
     def call_complex(self, dbdict, min_depth, max_depth, oper, out_name):
@@ -246,7 +280,6 @@ class Kfilter:
         os.remove(complex_file)
 
 
-
     def get_all_single_counts(self):
         """
         PARALLEL.
@@ -265,26 +298,26 @@ class Kfilter:
             subprocess.run(cmd, check=True)    
 
 
-    def get_union_single_counts(self):
+    def get_union_with_counts(self):
         """
         Prepare summed count database from all single count databases.
         This is the full set of observed kmers.
         """
         dbdict = {
-            idx: f"{self.prefix}_{sname}_count1"
+            idx: f"{self.prefix.replace('_kfilter', '_kcount', 1)}_{sname}"
             for idx, sname in enumerate(self.database)
         }
         # get ALL kmers
         self.call_complex(
             dbdict=dbdict,
             oper="union",
-            min_depth=0,
+            min_depth=1,
             max_depth=1000000000,
-            out_name='union',
+            out_name='union_counts',
         )
 
 
-    def get_min_cov_filtered_set(self):
+    def get_min_cov_passed_set(self):
         """
         Prepare database of kmers that did NOT occur across enough
         samples in total dataset.
@@ -297,9 +330,9 @@ class Kfilter:
         self.call_complex(
             dbdict=dbdict,
             oper="union",
-            min_depth=0,
-            max_depth=max(1, self.params['min_cov'] - 1),
-            out_name='min_cov-filtered',
+            min_depth=self.params['min_cov'],
+            max_depth=100000000,
+            out_name='min_cov-passed',
         )
 
 
@@ -314,50 +347,49 @@ class Kfilter:
             for idx, sname in enumerate(self.traits_to_samples[0])
         }
 
-        # if EVERY kmer in this set should be filtered then use the union
-        # this is just a faster way to accomplish the same as below.
-        if self.params['max_map'][0] in [0, 1]:
-            self.call_complex(
-                dbdict=dbdict,
-                oper="union",
-                min_depth=0,
-                max_depth=100000000,
-                out_name='map-0-filtered'
-            )
-        else:
-            # get kmers occurring from 0-minmap times
-            self.call_complex(
-                dbdict=dbdict, 
-                oper="union",
-                min_depth=0,
-                max_depth=self.params['min_map'][0],
-                out_name='map-0-filter-min'
-            )
-            # get kmers occurring from maxmap->infinity times
-            self.call_complex(
-                dbdict=dbdict, 
-                oper="union",
-                min_depth=self.params['max_map'][0],
-                max_depth=100000000,
-                out_name='map-0-filter-max'
-            )
-            # get kmers in the union of the min and max filters
-            dbdict = {
-                0: f"{self.prefix}_map-0-filter-min",
-                1: f"{self.prefix}_map-0-filter-max",
-            }
-            self.call_complex(
-                dbdict=dbdict,
-                oper="union",
-                min_depth=0,
-                max_depth=2,
-                out_name='map-0-filtered'
-            )
-            # os.remove(f"{self.prefix}_map-0-filter-min")
-            # os.remove(f"{self.prefix}_map-0-filter-max")
+        # simple process if max-map is 0
+        outname = (
+            'map-0-union' if self.params['max_map'][0] != 0 
+            else 'map-0-filtered'
+        )
+
+        # EVERY kmer in group0
+        self.call_complex(
+            dbdict=dbdict,
+            oper="union",
+            min_depth=1,
+            max_depth=100000000,
+            out_name=outname,
+        )
+
+        # end early if all are filtered.
+        if outname == 'map-0-filtered':
+            return
+
+        # kmers ALLOWED in final set
+        cmd = [
+            KMTBIN, "-hp", "-t8", "transform",
+            f"{self.prefix}_map-0-union",
+            "reduce"
+            f"{self.prefix}_map-0-passed",
+            f"-ci{self.params['min_map'][0]}",
+            f"-cx{self.params['max_map'][0]}",
+        ]
+
+        # kmers FILTERED from in final set
+        cmd = [
+            KMTBIN, "-hp", "-t8", "simple",
+            f"{self.prefix}_map-0-union",
+            f"{self.prefix}_map-0-passed",
+            "kmers_subtract",
+            f"{self.prefix}_map-0-filtered",
+            "-ci1"
+        ]
+        logger.debug(" ".join(cmd))            
+        subprocess.run(cmd, check=True)
 
 
-    def get_group1_filtered_set(self):
+    def get_group1_passed_set(self):
         """
         Prepare database of kmers that did NOT pass the filters
         for group 1. This usually has a mid min_map and a high max_map.
@@ -368,83 +400,64 @@ class Kfilter:
             for idx, sname in enumerate(self.traits_to_samples[1])
         }
 
-        # if EVERY kmer not at 100% in this set should be filtered 
-        # then use the union sum, this is faster than below.
-        if self.params['max_map'][1] == 1.0:
-            self.call_complex(
-                dbdict=dbdict,
-                oper="union",
-                min_depth=0,
-                max_depth=max(1, self.params['min_map'][1] - 1),
-                out_name='map-1-filtered'
-            )
-        else:
-            # get kmers occurring from 0-minmap times
-            self.call_complex(
-                dbdict=dbdict, 
-                oper="union",
-                min_depth=0,
-                max_depth=self.params['min_map'][1],
-                out_name='map-1-filter-min'
-            )
-            # get kmers occurring from maxmap->infinity times
-            self.call_complex(
-                dbdict=dbdict, 
-                oper="union",
-                min_depth=self.params['max_map'][1],
-                max_depth=100000000,
-                out_name='map-1-filter-max'
-            )
-            # get kmers in the union of the min and max filters
-            dbdict = {
-                0: f"{self.prefix}_map-1-filter-min",
-                1: f"{self.prefix}_map-1-filter-max",
-            }
-            self.call_complex(
-                dbdict=dbdict,
-                oper="union",
-                min_depth=0,
-                max_depth=2,
-                out_name='map-1-filtered'
-            )
-            # os.remove(f"{self.prefix}_map-0-filter-min")
-            # os.remove(f"{self.prefix}_map-0-filter-max")
+        self.call_complex(
+            dbdict=dbdict,
+            oper="union",
+            min_depth=self.params['min_map'][1],
+            max_depth=self.params['max_map'][1],
+            out_name='map-1-passed'
+        )
 
 
-    def get_filtered_union(self):
+    def get_passed_intersect(self):
         """
         Get the union of FILTERED kmers sets
         """
         dbdict = {
-            0: f"{self.prefix}_map-0-filtered",
-            1: f"{self.prefix}_map-1-filtered",
-            2: f"{self.prefix}_min_cov-filtered",            
+            0: f"{self.prefix}_min_cov-passed",
+            1: f"{self.prefix}_map-1-passed",
         }        
         self.call_complex(
             dbdict=dbdict,
-            oper="union",
-            min_depth=1,
-            max_depth=3,
-            out_name='filtered'
+            oper="intersect",
+            min_depth=2,
+            max_depth=10000000,
+            out_name='passed_intersect'
         )
 
 
-    def get_kmers_passed_filters(self):
+    def get_kmers_passed(self):
         """
         Get the set of kmers that are in total union of kmers but 
         not in the union of filtered kmers.
         """
         cmd = [
-            KMTBIN, "-hp", "-t8",
-            "simple",
-            f"{self.prefix}_union",
-            f"{self.prefix}_filtered",
+            KMTBIN, "-hp", "-t8", "simple",
+            f"{self.prefix}_passed_intersect",
+            f"{self.prefix}_map-0-filtered",
             "kmers_subtract",
             f"{self.prefix}_passed",
             "-ci1"
         ]
         logger.debug(" ".join(cmd))            
         subprocess.run(cmd, check=True)
+
+
+    def get_kmers_passed_counts(self):
+        """
+        Get the set of kmers that are in total union of kmers but 
+        not in the union of filtered kmers.
+        """
+        cmd = [
+            KMTBIN, "-hp", "-t8", "simple",
+            f"{self.prefix}_union_counts",
+            f"{self.prefix}_passed",
+            "intersect",
+            f"{self.prefix}_passed_counts",
+            "-ci1", "-ocleft"
+        ]
+        logger.debug(" ".join(cmd))            
+        subprocess.run(cmd, check=True)        
 
 
     def check_overwrite(self):
@@ -470,24 +483,26 @@ class Kfilter:
 
         # MINCANON FILTER ---------------------------------------------
         # get kmers passing the mincov_canon filter (canon-filtered)
-        # self.filter_canon()
-        
+        # self.filter_canon()       
         self.get_all_single_counts()
-        self.get_union_single_counts()
-        self.get_min_cov_filtered_set()
+        self.get_union_with_counts()
+        self.get_min_cov_passed_set()
         self.get_group0_filtered_set()
-        self.get_group1_filtered_set()
-        self.get_filtered_union()
-        self.get_kmers_passed_filters()
+        self.get_group1_passed_set()
+        self.get_passed_intersect()
+        self.get_kmers_passed()
 
         pre = f"{self.prefix}_"
+        kmers_total = info(pre + "union_counts")
+        kmers_passed = info(pre + "passed")
+        kmers_min_cov_passed = info(pre + "min_cov-passed")
         stats = KfilterData(
-            kmers_total=info(pre + "union"),
-            kmers_passed_total=info(pre + "passed"),
-            kmers_filtered_total=info(pre + "filtered"),
-            kmers_filtered_by_min_cov=info(pre + "min_cov-filtered"),
+            kmers_total=kmers_total,
+            kmers_passed_total=kmers_passed,
+            kmers_filtered_total=kmers_total - kmers_passed,
+            kmers_filtered_by_min_cov=kmers_total - kmers_min_cov_passed,
             kmers_filtered_by_group0_map=info(pre + "map-0-filtered"),
-            kmers_filtered_by_group1_map=info(pre + "map-1-filtered"),
+            kmers_filtered_by_group1_map=kmers_total - info(pre + "map-1-passed"),
             # kmers_filtered_by_canonized=info(),
             database_filtered=pre + "filtered",
             database_passed=pre + "passed",
@@ -690,12 +705,12 @@ if __name__ == "__main__":
 
     # fake data
     PHENOS = "~/Documents/kmerkit/data/amaranths-phenos.csv"
-    traits_dict = kmerkit.utils.get_traits_dict_from_csv(PHENOS)
+    TRAITS = kmerkit.utils.get_traits_dict_from_csv(PHENOS)
 
     # load database with phenotypes data
     kgp = Kfilter(
         json_file="/tmp/test.json",
-        traits=traits_dict,
+        traits=TRAITS,
         min_cov=0.5,
         min_map={
             0: 0.0,
