@@ -69,7 +69,7 @@ def info(database, mindepth=0):
 
 
 
-def dump(database, write_kmers=True, write_counts=True):
+def dump(database, write_kmers=True, write_counts=True, min_depth=1, max_depth=100000000):
     """
     Dump kmers to text for a specified database. 
     calls: 'kmc_tools transform /tmp/name dump /tmp/name_kmers.txt'
@@ -88,16 +88,13 @@ def dump(database, write_kmers=True, write_counts=True):
     """
     # if counts is False then write 'compact' database
     cmd = [
-        KMTBIN,
+        KMTBIN, "-hp", "-t8",
         "transform", 
         database,
-        "-ci1",
-        "-cx1000000000",
+        "-ci{}".format(min_depth),
+        "-cx{}".format(max_depth),
         "dump",
-        "-s",
         database + "_kmers.txt",
-        "-ci1",
-        "-cx1000000000",
         "-cs65535",
     ]
 

@@ -50,8 +50,8 @@ class Ktrim:
 
     def run(self, force=False, threads=None, workers=None):
         """
-        Run fastp on multiple samples in parallel. Each job uses 
-        approximately 2 threads, so we submit cores / 2 jobs.
+        Run fastp on multiple samples in parallel and automatically
+        scales the n threads per worker.
         """
         # check for current step
         if not force:
