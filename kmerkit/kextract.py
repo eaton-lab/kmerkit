@@ -258,8 +258,8 @@ class Kextract:
             raise KmerkitError("Preventing data overwrite")        
 
 
-
-    def run(self, force=False):
+    # TODO: implement workers
+    def run(self, force=False, threads=None, workers=None):
         """
         Iterate over all fastq files to call filter funcs.
         """
