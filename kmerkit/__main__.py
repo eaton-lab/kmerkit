@@ -315,6 +315,8 @@ def extract(
         kex.run(force=force, workers=workers, threads=threads)
     except KmerkitError:
         typer.Abort()
+    except KeyboardInterrupt:
+        typer.Abort("interrupted")
 
 
 @app.command()

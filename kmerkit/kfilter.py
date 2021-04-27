@@ -282,7 +282,7 @@ class Kfilter:
 
     def get_all_single_counts(self):
         """
-        PARALLEL.
+        PARALLELIZE THIS -- seems to max out at 200%
         Prepare single count database of every sample which will be used
         for presence/absence set arithmetic in filters.
         """
