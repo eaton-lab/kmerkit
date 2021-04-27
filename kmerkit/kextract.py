@@ -23,12 +23,15 @@ kmerkit kextract \
 
 import os
 import gzip
+import time
 import subprocess
+import concurrent.futures
+import numpy as np
 from loguru import logger
 from kmerkit.kmctools import KMTBIN
-from kmerkit.utils import KmerkitError, get_fastq_dict_from_path
+from kmerkit.utils import KmerkitError, get_fastq_dict_from_path, num_cpus
 from kmerkit.kschema import Project, KextractData, KextractParams, KextractBase
-
+# from kmerkit.parallel import Cluster
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
 
@@ -91,7 +94,7 @@ class Kextract:
             return 
 
         samples = set()
-        for iset in input_set:
+        for iset in sorted(input_set):
             # special keyword to select kfilter group 0
             if iset == "0":
                 fsamps = set(self.project['kfilter']['params']['trait_0'])
@@ -123,7 +126,7 @@ class Kextract:
 
 
 
-    def get_reads_with_kmers(self, fastq, sname, readnum):
+    def get_reads_with_kmers(self, fastq, sname, readnum, threads):
         """
         Generate a directory full of fastq files for each sample
         where reads are only kept if they contain kmers from the
@@ -131,9 +134,10 @@ class Kextract:
 
         CMD: kmc_tools filter database input.fastq -ci10 -cx100 out.fastq
         """
+        logger.info(f"extracting reads: {fastq}")
         # Here broken into [kmc_tools filter database <options>]
         cmd = [
-            KMTBIN, "-hp", "-t8",
+            KMTBIN, "-hp", "-t{}".format(threads),
             "filter", 
             str(self.project['kfilter']['data']['database_passed']),
         ]
@@ -172,7 +176,7 @@ class Kextract:
         Current approach may be memory crushing... TODO: write chunk 
         files.
         """
-        logger.debug(f"pair matching in {sname}")
+        logger.info(f"re-matching paired reads in {sname}")
 
         # get fastq file paths of original data
         old_fastqs = [str(i) for i in self.fastq_dict[sname]]
@@ -258,7 +262,7 @@ class Kextract:
             raise KmerkitError("Preventing data overwrite")        
 
 
-    # TODO: implement workers
+
     def run(self, force=False, threads=None, workers=None):
         """
         Iterate over all fastq files to call filter funcs.
@@ -267,31 +271,61 @@ class Kextract:
         if not force:
             self.check_overwrite()
 
+        # set cores values to limit njobs to ncores / 4
+        if workers in [0, None]:
+            workers = max(1, int(np.ceil(num_cpus() / 4)))
+            threads = 4
+
+        # if user set workers, then scale threads to match
+        else:
+            workers = int(workers)
+            threads = (threads if threads else int(num_cpus() / workers))
+            # (threads if threads else 4)
+        logger.debug(f"workers={workers}; threads={threads};")
+
+        # wrapped execution
         stats = {}
-        for sname in self.fastq_dict:
+        writing = {}
+        with concurrent.futures.ProcessPoolExecutor(workers) as lbview:
+            for sname in self.fastq_dict:
+                args = (self.fastq_dict[sname][0], sname, 1, threads)
+                future_1 = lbview.submit(self.get_reads_with_kmers, *args)
+                args = (self.fastq_dict[sname][1], sname, 2, threads)
+                future_2 = lbview.submit(self.get_reads_with_kmers, *args)
+                writing[sname] = [future_1, future_2]
 
-            # get fastq filename
-            fastqs = self.fastq_dict[sname]
+            # track jobs, start follower jobs, and get results
+            matching = {}
+            while 1:
 
-            # accommodates paired reads:
-            for readnum, fastq in enumerate(fastqs):
+                # get finished pair writing jobs and send pair-matching job
+                finished = [
+                    i for i in writing if all(j.done() for j in writing[i])
+                ]
+                for sname in finished:
+                    if self.params['keep_paired']:
+                        matching[sname] = lbview.submit(
+                            self.match_paired_reads, sname)
+                    # else:
+                        # lbview.submit(self.concat_reads, sname)
+                    writing.pop(sname)
 
-                # call kmc_tools filter, writes new fastq to prefix
-                self.get_reads_with_kmers(fastq, sname, readnum + 1)
+                # get finished pair-matching jobs and enter to stats
+                finished = [i for i in matching if matching[i].done()]
+                for sname in finished:
+                    nreads, data_out = matching[sname].result()
+                    stats[sname] = KextractData(
+                        data_in=self.fastq_dict[sname],
+                        data_out=data_out,
+                        kmer_matched_reads=nreads
+                    )
+                    logger.debug(stats[sname].json(indent=4))
+                    matching.pop(sname)
 
-            # get read pairs where either contains the kmer
-            if self.params['keep_paired']:
-                nreads, data_out = self.match_paired_reads(sname)
-            # else:
-                # nreads = self.concat_reads()
-
-            # store results
-            stats[sname] = KextractData(
-                data_in=fastqs,
-                data_out=data_out,
-                kmer_matched_reads=nreads
-            )
-            logger.debug(stats[sname].json(indent=4))
+                # end looping
+                if (not writing) and (not matching):
+                    break
+                time.sleep(1)
 
         # save to project
         self.project['kextract'] = KextractBase(
@@ -300,6 +334,7 @@ class Kextract:
         )
         with open(self.json_file, 'w') as out:
             out.write(Project(**self.project).json(indent=4))
+
 
 
 def fastq_to_read_names(fastq):
