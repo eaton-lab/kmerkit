@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 import typer
 import pandas as pd
+from loguru import logger
 from kmerkit import __version__
 from kmerkit.kschema import Project
 from kmerkit.utils import set_loglevel, KmerkitError
@@ -377,5 +378,44 @@ def kdump(
             write_kmers, write_counts,
         ).run()
 
+    except KmerkitError:
+        typer.Abort()
+
+
+@app.command()
+def branch(
+    json_file: Path = typer.Option(..., "-j", "--json"),
+    force: bool = typer.Option(False, help="force overwrite."),
+    loglevel: LogLevel = LogLevel.INFO,
+    name: str = typer.Argument(..., help="New name of branched project."),
+    ):
+    """
+    Branch to create a new named project JSON file.
+
+    kmerkit branch -j test.json test2
+    """   
+    typer.secho(
+        "branch: write kmers and/or counts to a file.",
+        fg=typer.colors.MAGENTA,
+        bold=False,
+    )
+    set_loglevel(loglevel)
+
+    try:
+        name = name.strip(".json")
+        proj = Project.parse_file(json_file).dict()
+        proj['name'] = name
+        new_json_file = os.path.join(
+            os.path.dirname(json_file),
+            name + ".json"
+        )
+        if os.path.exists(new_json_file):
+            if not force:
+                msg = "JSON file already exists. Use force."
+                logger.error(msg)
+                raise KmerkitError(msg)
+        with open(new_json_file, 'w') as out:
+            out.write(Project(**proj).json(indent=4))
+        logger.info(f"wrote new branched project to {new_json_file}")
     except KmerkitError:
         typer.Abort()
