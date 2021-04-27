@@ -8,7 +8,7 @@ to test for whether we should use uint8 versus uint16.
 Why not just handle this completely for the user to avoid problems.
 """
 
-__version__ = "0.0.14"
+__version__ = "0.0.16"
 
 from loguru import logger
 
