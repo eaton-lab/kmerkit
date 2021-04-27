@@ -35,7 +35,7 @@ import os
 import re
 import itertools
 import subprocess
-import numpy as np
+from math import floor
 
 from loguru import logger
 from kmerkit.kmctools import KMTBIN, info
@@ -198,31 +198,51 @@ class Kfilter:
         # int encode min_cov
         if isinstance(self.params['min_cov'], float):
             self.params['min_cov'] = int(max(1, 
-                np.floor(self.params['min_cov'] * len(self.database)))
+                floor(self.params['min_cov'] * len(self.database)))
             )
-            logger.debug(f"int encoded min_cov: {self.params['min_cov']}")
+        logger.info(
+            f"Total: nsamples={len(self.database):2d}, "
+            f"target kmer occurrences at min-cov>={self.params['min_cov']}"
+        )            
 
         # int encoded map values
         for key in [0, 1]:
+
+            # get n samples and require samples
             nsamples = len(self.traits_to_samples[key])
             assert nsamples, f"No samples are set to state={key}"
 
-            self.params['min_map'][key] = int(
-                int(np.floor(self.params['min_map'][key] * nsamples))
-            )
+            # set maxmap to int
             self.params['max_map'][key] = int(
                 max(self.params['min_map'][key],
                     min(nsamples,
-                        int(np.floor(self.params['max_map'][key] * nsamples)))
+                        int(floor(self.params['max_map'][key] * nsamples)))
             ))
-            self.params['min_map_canon'] = 100
 
-        logger.debug(f"int encoded min_map: {self.params['min_map']}")
-        logger.debug(f"int encoded max_map: {self.params['max_map']}")
-            # for param in ['min_map', 'max_map', 'min_map_canon']:
-            #     value = int(np.floor(self.params[param][key] * nsamples))
-            #     self.params[param][key] = value
-            #     logger.debug(f"int encoded {param}[{key}]: {value}")
+            # in key0 the maxmap is actually inverse (allowed)
+            if not key:
+                self.params['max_map'][key] = nsamples - self.params['max_map'][key]
+
+            # check lower limit
+            if not self.params['max_map'][key]:
+                self.params['max_map'][key] = 1
+
+            # set minmap last and enforce min of 1
+            self.params['min_map'][key] = int(max(1, 
+                (floor(self.params['min_map'][key] * nsamples))
+            ))
+
+            # not yet implemented
+            self.params['min_map_canon'] = 100            
+
+            # report
+            logger.info(
+                f"Group {key}: nsamples={nsamples:2d}, "
+                f"{'target ' if bool(key) else 'filter '}"
+                "kmer occurrences at "
+                f"min-cov>={self.params['min_map'][key]:2d}, "
+                f"max-cov<={self.params['max_map'][key]:2d}"
+            )
 
 
     def call_complex(self, dbdict, min_depth, max_depth, oper, out_name):
@@ -304,7 +324,7 @@ class Kfilter:
         This is the full set of observed kmers.
         """
         dbdict = {
-            idx: f"{self.prefix.replace('_kfilter', '_kcount', 1)}_{sname}"
+            idx: f"{self.database[sname]['database']}"
             for idx, sname in enumerate(self.database)
         }
         # get ALL kmers
@@ -347,18 +367,20 @@ class Kfilter:
             for idx, sname in enumerate(self.traits_to_samples[0])
         }
 
-        # simple process if max-map is 0
-        outname = (
-            'map-0-union' if self.params['max_map'][0] != 0 
-            else 'map-0-filtered'
-        )
+        # simple process if max-map group0 is ALL
+        cond0 = self.params['min_map'][0] == 1
+        cond1 = self.params['max_map'][0] == len(self.traits_to_samples[0])
+        if cond0 and cond1:
+            outname = 'map-0-filtered'
+        else:
+            outname = 'map-0-union'
 
         # EVERY kmer in group0
         self.call_complex(
             dbdict=dbdict,
             oper="union",
             min_depth=1,
-            max_depth=100000000,
+            max_depth=len(self.traits_to_samples[0]),
             out_name=outname,
         )
 
@@ -370,11 +392,13 @@ class Kfilter:
         cmd = [
             KMTBIN, "-hp", "-t8", "transform",
             f"{self.prefix}_map-0-union",
-            "reduce"
+            "reduce",
             f"{self.prefix}_map-0-passed",
             f"-ci{self.params['min_map'][0]}",
             f"-cx{self.params['max_map'][0]}",
         ]
+        logger.debug(" ".join(cmd))            
+        subprocess.run(cmd, check=True)
 
         # kmers FILTERED from in final set
         cmd = [
@@ -416,11 +440,11 @@ class Kfilter:
         dbdict = {
             0: f"{self.prefix}_min_cov-passed",
             1: f"{self.prefix}_map-1-passed",
-        }        
+        }
         self.call_complex(
             dbdict=dbdict,
             oper="intersect",
-            min_depth=2,
+            min_depth=1,
             max_depth=10000000,
             out_name='passed_intersect'
         )
