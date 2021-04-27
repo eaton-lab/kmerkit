@@ -31,12 +31,18 @@ nav:
   - Installation: installation.md
   - Tutorial - User Guide:
       - Quick-start: quick-start.md
-      - kmer counting (kcount): kcount.md
-      - kmer filtering (kfilter): kfilter.md  
+      - kinit - start a project: kinit.md
+      - ktrim - read trim/filter: kfilter.md  
+      - kcount - counting kmers: kcount.md
+      - kfilter - select target kmers: kfilter.md
+      - kextract - select target reads: kfilter.md
+      - kmatrix - export genotypes: kmatrix.md
+      - kgwas - GWAS inference: kmatrix.md
   - Cookbooks:
-      - Amaranth-dioecy: cookbooks/1-amaranthus-dioecy.md
-      - Amaranth-dioecy (API): cookbooks/1-amaranthus-dioecy-api.md
-      - Arabidopsis-gwas: cookbooks/2-arabidopsis-gwas.md
+      - GWAS WGS sex-determination (Amaranth): cookbooks/1-amaranthus-dioecy.md
+      # - Amaranth-dioecy (API): cookbooks/1-amaranthus-dioecy-api.md
+      - GWAS WGS many traits (Arabidopsis): cookbooks/2-arabidopsis-gwas.md
+      - GWAS RAD-seq: cookbooks/3-pedicularis-RAD-gwas.md
 
 markdown_extensions:
   - toc:
