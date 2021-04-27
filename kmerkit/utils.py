@@ -244,6 +244,7 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
                     "<level>{message}</level>"
                 ),
                 "level": loglevel,
+                # "enqueue": True,
                 },
             # {
                 # "sink": logfile,                   
