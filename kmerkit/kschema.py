@@ -52,7 +52,7 @@ import sklearn
 
 class Kinit(BaseModel):
     data: Dict[str, List[FilePath]] = Field(default_factory=dict)
-    commands: Dict[str, str] = Field(default_factory=dict)
+    commands: Dict[str, str] = Field(None) # Field(default_factory=dict)
 
 # ---------------------------------------------------------------------
 class KtrimParams(BaseModel):

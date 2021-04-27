@@ -26,7 +26,6 @@ import tempfile
 from pathlib import Path
 from typing import List, Tuple, Optional
 import typer
-import pandas as pd
 from loguru import logger
 from kmerkit import __version__
 from kmerkit.kschema import Project
@@ -38,6 +37,7 @@ from kmerkit.kcount import Kcount
 from kmerkit.kfilter import Kfilter
 from kmerkit.kextract import Kextract
 from kmerkit.kdump import Kdump
+from kmerkit.kstats import Kstats
 
 # add the -h option for showing help
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -84,34 +84,6 @@ def main(
     )
 
 
-@app.command()
-def stats(
-    json_file: str = typer.Option(..., "--json", "-j", help="kmerkit project JSON file"),
-    module: str = typer.Argument(None, help="kmerkit module") 
-    # flow: bool = typer.Option(False, help="show status as flow diagram"),
-    ):
-    """
-    Return tabular stats output for a project module to stdout.
-    """
-    module = module.lower()
-
-    # load the project
-    project = Project.parse_file(json_file).dict()
-    if module not in project:
-        typer.Abort(f"no results exist for {module}")
-
-    typer.secho(
-        "{} stats for project {}".format(
-            module,
-            os.path.basename(json_file).rsplit(".")[0],
-        ), 
-        fg=typer.colors.CYAN,
-    )
-    # TODO, make a class to normalize each type to CSV.
-    print(pd.json_normalize(project[module]['data']))
-
-
-
 @app.command(context_settings=CONTEXT_SETTINGS)
 def init(
     name: str = typer.Option("test", "-n", "--name", help="Project name prefix"),
@@ -152,6 +124,31 @@ def init(
     except KmerkitError:
         typer.Abort()
 
+
+
+@app.command()
+def stats(
+    json_file: str = typer.Option(..., "--json", "-j", help="kmerkit project JSON file"),
+    module: str = typer.Argument(None, help="Show stats for a specific module") 
+    ):
+    """
+    Return summarized results from kmerkit modules to STDOUT.
+
+    If no argument is entered for 'module' then the project JSON
+    file is printed to STDOUT. If a module name is entered (e.g., 
+    'trim' or 'ktrim') then the results of this module will be 
+    summarized and formatted into a tabular (TSV) format and returned.
+    Module names can be entered with or without the 'k' prefix.
+    """
+    try:
+        kst = Kstats(json_file)
+        if not module:
+            kst.run()
+        else:
+            for mod in module:
+                kst.run(mod.lower().lstrip('k'))
+    except KmerkitError:
+        typer.Abort()
 
 
 @app.command(context_settings=CONTEXT_SETTINGS)
@@ -228,14 +225,20 @@ def kfilter(
     group1: Optional[List[str]] = typer.Option(None, '--group1', '-1'),
     traits_file: Optional[Path] = typer.Option(None, '--traits-file'),
     min_cov: float = typer.Option(0.0),
-    min_map: Tuple[float,float] = typer.Option((0.0, 0.1)),
-    max_map: Tuple[float,float] = typer.Option((0.1, 1.0)),
+    min_map: Tuple[float,float] = typer.Option((0.0, 1.0)),
+    max_map: Tuple[float,float] = typer.Option((0.0, 1.0)),
     loglevel: LogLevel = LogLevel.INFO,
     force: bool = typer.Option(False, help="overwrite existing"),
     # min_map_canon
     ):
     """
     Filter kmers based on frequencies among grouped samples.
+
+    The filter kmers (group 0) are subtracted from the target kmers
+    (group 1) to find the final target kmer set. You must enter sample
+    names (or regex patterns) to --group0 and --group1 to assign samples
+    to each group. Kmers in each group are filtered by min-map and 
+    max-map ranges...
     """
     # report the module
     typer.secho(
