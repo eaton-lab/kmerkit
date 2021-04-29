@@ -152,7 +152,7 @@ class KmatrixBase(BaseModel):
 class KextractParams(BaseModel):
     min_kmers_per_read: int = 0
     min_depth_kmer: int = 0
-    keep_paired: bool
+    paired_union: bool
 
 class KextractData(BaseModel):
     data_in: List[Path] = Field(None)
