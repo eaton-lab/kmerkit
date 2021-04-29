@@ -130,6 +130,14 @@ def get_traits_dict_from_csv(csv_file, **kwargs):
     # return traits
 
 
+
+def get_fastq_dict_from_samples(samples: List):
+    """
+    Returns a dictionary mapping samples names to a list of files
+    that are present in the JSON database either 
+    """
+
+
 def get_fastq_dict_from_path(
     fastq_path: str = None, 
     fastq_list: List = None, 

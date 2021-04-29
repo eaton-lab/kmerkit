@@ -45,13 +45,14 @@ PLANNED JSON SCHEMA:
 # pylint: disable=no-name-in-module
 from enum import IntEnum
 from typing import List, Dict, Optional
-from pydantic import BaseModel, Field, FilePath, confloat
+from pathlib import Path
+from pydantic import BaseModel, Field, confloat # FilePath
 import sklearn
 
 # ---------------------------------------------------------------------
 
 class Kinit(BaseModel):
-    data: Dict[str, List[FilePath]] = Field(default_factory=dict)
+    data: Dict[str, List[Path]] = Field(default_factory=dict)
     commands: Dict[str, str] = Field(None) # Field(default_factory=dict)
 
 # ---------------------------------------------------------------------
@@ -59,8 +60,8 @@ class KtrimParams(BaseModel):
     subsample: int = Field(None)
 
 class KtrimData(BaseModel):
-    data_in: List[FilePath] = Field(None)
-    data_out: List[FilePath] = Field(None)
+    data_in: List[Path] = Field(None)
+    data_out: List[Path] = Field(None)
     fastp_stats: dict = Field(None)
 
 class KtrimBase(BaseModel):
@@ -139,8 +140,8 @@ class KmatrixParams(BaseModel):
     samples: Optional[List[str]]
 
 class KmatrixData(BaseModel):
-    matrix: FilePath
-    counts: Optional[FilePath]
+    matrix: Path
+    counts: Optional[Path]
 
 class KmatrixBase(BaseModel):
     params: KmatrixParams = Field(None)
@@ -154,8 +155,8 @@ class KextractParams(BaseModel):
     keep_paired: bool
 
 class KextractData(BaseModel):
-    data_in: List[FilePath]
-    data_out: List[FilePath]
+    data_in: List[Path] = Field(None)
+    data_out: List[Path] = Field(None)
     kmer_matched_reads: int = 0
 
 class KextractBase(BaseModel):

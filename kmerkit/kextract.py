@@ -22,6 +22,7 @@ kmerkit kextract \
 """
 
 import os
+import re
 import gzip
 import time
 import subprocess
@@ -29,9 +30,10 @@ import concurrent.futures
 import numpy as np
 from loguru import logger
 from kmerkit.kmctools import KMTBIN
-from kmerkit.utils import KmerkitError, get_fastq_dict_from_path, num_cpus
+from kmerkit.utils import KmerkitError, num_cpus
 from kmerkit.kschema import Project, KextractData, KextractParams, KextractBase
 # from kmerkit.parallel import Cluster
+
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
 
@@ -50,8 +52,12 @@ class Kextract:
         ...
     fastq_dict (dict):
         ...
+    pairs_union (bool):
+        Keep pairs as long as one or the other (the union) contains the 
+        target min number of kmers. If False then only one OR the other
+        must contain min kmers (the intersection).
     """
-    def __init__(self, json_file, samples=None, min_kmers_per_read=1, keep_paired=True):
+    def __init__(self, json_file, samples=None, min_kmers_per_read=1, pairs_union=True):
 
         # load project
         self.json_file = json_file
@@ -60,7 +66,7 @@ class Kextract:
         # type-check params
         self._params = KextractParams(
             min_kmers_per_read=min_kmers_per_read,
-            keep_paired=True,
+            pairs_union=True,
         )
         self.params = self._params.dict()
 
@@ -69,7 +75,7 @@ class Kextract:
             self.project['workdir'], f"{self.project['name']}_kextract")
 
         # get input data from database samples AND newly entered samples.
-        self.factq_dict = {}
+        self.fastq_dict = {}
         self.select_samples(samples)
 
 
@@ -82,7 +88,8 @@ class Kextract:
         init_set = set(self.project['kinit']['data'])
         input_set = set(samples)
 
-        # if input is None then use database
+        # ----------------------------
+        # if input is None then use database ktrim or kinit data
         if not input_set:
             if self.project.get('ktrim'):
                 self.fastq_dict = {
@@ -91,39 +98,51 @@ class Kextract:
                 }
             else:
                 self.fastq_dict = self.project['kinit']['data']
-            return 
+            return
 
+        # ----------------------------
+        # select samples by group (0,1), filepath, or sname/regex, allowing
+        # multiple of these options to be combined. Builds a list of sample
+        # names and then uses utils.get_fastq_dict() to get {name: [path, path]}
         samples = set()
         for iset in sorted(input_set):
-            # special keyword to select kfilter group 0
-            if iset == "0":
-                fsamps = set(self.project['kfilter']['params']['trait_0'])
-                for fsamp in fsamps:
-                    samples.update(
-                        [str(i) for i in self.project['kinit']['data'][fsamp]]
-                    )
 
-            # special keyword to select kfilter group 1
-            elif iset == "1":
-                fsamps = set(self.project['kfilter']['params']['trait_1'])
+            # special keyword to select kfilter group 0 or 1
+            if iset in ["0", "1"]:
+                fsamps = set(self.project['kfilter']['params'][f'trait_{iset}'])
                 for fsamp in fsamps:
-                    samples.update(
-                        [str(i) for i in self.project['kinit']['data'][fsamp]]
-                    )
+                    if self.project.get("ktrim"):
+                        ifiles = [str(i) for i in self.project['ktrim']['data'][fsamp]['data_out']]
+                    else:
+                        ifiles = [str(i) for i in self.project['kinit']['data'][fsamp]]
+                    self.fastq_dict[fsamp] = ifiles
 
-            # a new filepath
-            elif os.path.exists(iset):
-                samples.update([str(iset)])
-            # a sample name from the init_set
+            # a sample name in the database, or regex pattern of sample names.
             else:
+                # get name and files from database
                 if iset in init_set:
-                    samples.update([str(self.project['kinit']['data'][iset])])
+                    if self.project.get('ktrim'):
+                        self.fastq_dict[iset] = (
+                            self.project['ktrim']['data'][iset]['data_out']
+                        )
+                    else:
+                        self.fastq_dict[iset] = self.project['kinit']['data'][iset]
+
+                # check if name is a regex and expand to get names
                 else:
-                    logger.warning(
-                        f"Skipping sample {iset} not present in project database")
-
-        self.fastq_dict = get_fastq_dict_from_path(None, samples, "_R")
-
+                    search = (re.match(iset, i) for i in init_set)
+                    matches = [i.string for i in search if i]
+                    if matches:
+                        logger.debug(f"{iset} expanded to {matches}")
+                        for sname in matches:
+                            if self.project.get('ktrim'):
+                                self.fastq_dict[sname] = (
+                                    self.project['ktrim']['data'][sname]['data_out']
+                                )
+                            else:
+                                self.fastq_dict[sname] = self.project['kinit']['data'][sname]
+            logger.info(f"{len(self.fastq_dict)} samples selected.")
+            logger.debug(f"FASTQ_DICT: {self.fastq_dict}")
 
 
     def get_reads_with_kmers(self, fastq, sname, readnum, threads):
@@ -156,7 +175,7 @@ class Kextract:
         cmd.extend([f"-ci{self.params['min_kmers_per_read']}"])
 
         # add the output fastq path
-        cmd.extend([self.prefix + f"_{sname}_R{readnum}.fastq"])
+        cmd.extend([self.prefix + f"_{sname}_R{readnum}_tmp.fastq"])
 
         # log and call the kmc_tool command
         logger.debug(" ".join(cmd))
@@ -167,86 +186,6 @@ class Kextract:
             check=True,
             # cwd=self.workdir,
         )
-
-
-
-    def match_paired_reads(self, sname):
-        """
-        Get read pairs for all reads in which EITHER has a kmer match.
-        Current approach may be memory crushing... TODO: write chunk 
-        files.
-        """
-        logger.info(f"re-matching paired reads in {sname}")
-
-        # get fastq file paths of original data
-        old_fastqs = [str(i) for i in self.fastq_dict[sname]]
-        new_fastqs = [
-            f"{self.prefix}_{sname}_R1.fastq",
-            f"{self.prefix}_{sname}_R2.fastq",
-        ]
-
-        # -----------------------------------------------------
-        # create set of all read names in new kmer-matched file
-        set1 = fastq_to_read_names(new_fastqs[0])
-        lines1 = fastq_to_line_nos(old_fastqs[0], set1)
-        del set1
-
-        set2 = fastq_to_read_names(new_fastqs[1])
-        lines2 = fastq_to_line_nos(old_fastqs[1], set2)
-        del set2
-
-        # -------------------------------------------------------
-        # get union of lines1 and line2
-        lidxs = lines1.union(lines2)
-        del lines1
-        del lines2
-
-        # skip the rest if no lidxs exist
-        if not lidxs:
-            return 0, (None, None)
-
-        # overwrite new read files with reads from original files
-        # at all line indices in lidxs.
-        for new, old in zip(new_fastqs, old_fastqs):
-
-            # open writer 
-            with open(new, 'w') as out:
-
-                # load the originals
-                readio = (
-                    gzip.open(old, 'rt') if old.endswith('.gz') 
-                    else open(old, 'r')
-                )
-                # read in 4 lines at a time
-                matched = iter(readio)
-                quart = zip(matched, matched, matched, matched)
-
-                # save each 4-line chunk to chunks if it lidxs
-                chunk = []
-                idx = 0
-
-                # iterate until end of file
-                while 1:
-                    try:
-                        test = next(quart)
-                        if idx in lidxs:
-                            chunk.extend(test)
-                    except StopIteration:
-                        break
-                    idx += 1
-
-                    # occasionally write to disk and clear
-                    if len(chunk) == 2000:
-                        out.write("".join(chunk))
-                        chunk = []
-
-                if chunk:
-                    out.write("".join(chunk))
-                readio.close()
-
-        # return the number of paired reads
-        return len(lidxs), new_fastqs
-
 
 
     def check_overwrite(self):
@@ -303,9 +242,11 @@ class Kextract:
                     i for i in writing if all(j.done() for j in writing[i])
                 ]
                 for sname in finished:
-                    if self.params['keep_paired']:
+                    if 1:  # TODO: support SE data.
                         matching[sname] = lbview.submit(
-                            self.match_paired_reads, sname)
+                            # self.match_paired_reads, sname
+                            self.new_match_paired_reads, sname, self.params["pairs_union"],
+                        )
                     # else:
                         # lbview.submit(self.concat_reads, sname)
                     writing.pop(sname)
@@ -314,6 +255,7 @@ class Kextract:
                 finished = [i for i in matching if matching[i].done()]
                 for sname in finished:
                     nreads, data_out = matching[sname].result()
+                    # if data_out is not None:
                     stats[sname] = KextractData(
                         data_in=self.fastq_dict[sname],
                         data_out=data_out,
@@ -337,47 +279,144 @@ class Kextract:
 
 
 
-def fastq_to_read_names(fastq):
-    """
-    Extracts the fastq read header from all reads as a set.
-    Used in match_paired_reads()
-    """
-    name_set = set()
-    with open(fastq, 'r') as readio:
-        matched = iter(readio)
-        quart = zip(matched, matched, matched, matched)
+    def new_match_paired_reads(self, sname, union=True):
+        """
+        Get read pairs for all reads in which EITHER has a kmer match.
+        Current approach may be memory crushing... TODO: write chunk 
+        files.
+        """
+        logger.info(f"re-matching paired reads in {sname}")
+
+        # get fastq file paths of original data
+        old_fastqs = [str(i) for i in self.fastq_dict[sname]]
+        new_fastqs = [
+            f"{self.prefix}_{sname}_R1_tmp.fastq",
+            f"{self.prefix}_{sname}_R2_tmp.fastq",
+        ]
+
+        # -----------------------------------------------------
+        # create set of all read names in new kmer-matched file
+        lines1 = get_line_nos(old_fastqs[0], new_fastqs[0])
+        lines2 = get_line_nos(old_fastqs[1], new_fastqs[1])
+
+        # bail out if no data
+        if (not lines1) or (not lines2):
+            return 0, None
+
+        # -------------------------------------------------------
+        # get union of lines1 and line2
+        if union:
+            lidxs = lines1.union(lines2)
+            logger.debug(
+                f"{sname} union of PE reads: "
+                f"{len(lines1)} U {len(lines2)} = {len(lidxs)}"
+            )
+        else:
+            lidxs = lines1.intersection(lines2)
+        del lines1
+        del lines2
+
+        # skip the rest if no lidxs exist
+        if not lidxs:
+            return 0, None
+
+        # write lines to new files
+        fname1 = new_fastqs[0].replace("_tmp.fastq", ".fastq.gz")
+        fname2 = new_fastqs[1].replace("_tmp.fastq", ".fastq.gz")
+        out1 = gzip.open(fname1, 'wt')
+        out2 = gzip.open(fname2, 'wt')
+        old1 = (
+            gzip.open(old_fastqs[0], 'rt') if old_fastqs[0].endswith('.gz') 
+            else open(old_fastqs[0], 'rt')
+        )
+        old2 =  (
+            gzip.open(old_fastqs[1], 'rt') if old_fastqs[1].endswith('.gz') 
+            else open(old_fastqs[1], 'rt')
+        )
+        
+        # read chunks of 4 lines
+        quart1 = zip(old1, old1, old1, old1)
+        quart2 = zip(old2, old2, old2, old2)
+
+        # save each 4-line chunk to chunks if it lidxs
+        chunks1 = []
+        chunks2 = []        
+        idx = 0
+
+        # iterate until end of file
         while 1:
             try:
-                header = next(quart)[0].strip()
-                name_set.add(header)
+                ch_r1 = next(quart1)
+                ch_r2 = next(quart2)
+                if idx in lidxs:
+                    chunks1.extend(ch_r1)
+                    chunks2.extend(ch_r2)
             except StopIteration:
                 break
-    return name_set
+            idx += 1
+
+            # occasionally write to disk and clear
+            if len(chunks1) == 10000:
+                out1.write("".join(chunks1))
+                out2.write("".join(chunks2))
+                chunks1 = []
+                chunks2 = []
+
+        if chunks1:
+            out1.write("".join(chunks1))
+            out2.write("".join(chunks2))            
+        out1.close()
+        out2.close()
+        old1.close()
+        old2.close()                        
+
+        # return the number of paired reads
+        return len(lidxs), (fname1, fname2)
 
 
-def fastq_to_line_nos(fastq, name_set):
+
+def get_line_nos(fastq_big, fastq_small):
     """
-    Extract line nos of headers matching to a target name set.
-    Used in match_paired_reads()    
+    Get line-nos ...
     """
-    # find lines with same read names in orig fastq file
+    # store lines from big that are in small
     line_nos = set()
-    readio = (
-        gzip.open(fastq, 'rt') if fastq.endswith('.gz') else open(fastq, 'r')
+
+    # get 4-line iterator
+    bi_data = (
+        gzip.open(fastq_big, 'rt') if fastq_big.endswith('.gz') 
+        else open(fastq_big, 'r')
     )
-    matched = iter(readio)
-    quart = zip(matched, matched, matched, matched)
+    quart_big = zip(bi_data, bi_data, bi_data, bi_data)
+
+    # get 4-line iterator
+    si_data = (
+        gzip.open(fastq_small, 'rt') if fastq_small.endswith('.gz') 
+        else open(fastq_small, 'r')
+    )
+    quart_small = zip(si_data, si_data, si_data, si_data)
+
+    # get first chunk (UNLESS file is empty!)
+    try:
+        header_big = next(quart_big)[0].strip()
+        header_small = next(quart_small)[0].strip()
+    except StopIteration:
+        return None
+
     idx = 0
     while 1:
         try:
-            header = next(quart)[0].strip()
-            if header in name_set:
+            # advance both if they match, else only the big one
+            if header_big == header_small:
+                header_big = next(quart_big)[0].strip()                
+                header_small = next(quart_small)[0].strip()
                 line_nos.add(idx)
-                idx += 1
+            else:
+                header_big = next(quart_big)[0].strip()
+            idx += 1
         except StopIteration:
             break
-    readio.close()
-    return line_nos
+    return line_nos    
 
 
 

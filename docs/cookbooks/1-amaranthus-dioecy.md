@@ -91,12 +91,43 @@ or, you can access a more nicely formatted view of specific results by calling
 `kmerkit stats` and specifying a specific module.
 
 ```bash
-kmerkit stats --json /tmp/dioecy.json init
+kmerkit stats --json /tmp/dioecy.json
 ```
 
 ??? tip "kmerkit stats output"
-	```console
-	...
+	```json
+	Project JSON data:
+	{
+	    "name": "Neves",
+	    "workdir": "/pinky/deren/palmeri",
+	    "versions": {
+	        "kmerkit": "0.0.12",
+	        "kmc": "3.1.1",
+	        "gemma": "0.9.83",
+	        "sklearn": "0.24.1"
+	    },
+	    "kinit": {
+	        "data": {
+	            "ERR4161581": [
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161581_1.fastq.gz",
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161581_2.fastq.gz"
+	            ],
+	            "ERR4161582": [
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161582_1.fastq.gz",
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161582_2.fastq.gz"
+	            ],
+	            "ERR4161583": [
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161583_1.fastq.gz",
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161583_2.fastq.gz"
+	            ],
+	            "ERR4161584": [
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161584_1.fastq.gz",
+	                "/pinky/DATASTORE/Amaranthus_palmeri_PRJEB38372/ERR4161584_2.fastq.gz"
+	            ]
+	        },
+	        "commands": {}
+	    },
+	}
 	```
 
 ### Read trimming (optional)
@@ -108,11 +139,16 @@ use the trimmed reads instead of the raw reads (both sets of filepaths can
 be viewed in the project JSON file).
 
 ```bash
-kmerkit trim --json /tmp/dioecy.json --workers 4
+kmerkit trim -j /tmp/dioecy.json --workers 4
 ```
 
+Like before we can access the results from the JSON file by calling the
+`stats` module. In this case I also provide a module name (trim) to 
+select only results for this module. When doing this, the results will 
+be returned formatted as a tabular TSV instead of JSON.
+
 ```bash
-kmerkit stats --json /tmp/dioecy.json trim
+kmerkit stats -j /tmp/dioecy.json trim
 ```
 
 ??? tip "kmerkit stats output"
@@ -121,22 +157,23 @@ kmerkit stats --json /tmp/dioecy.json trim
 	```
 
 ### Count kmers
-Kmers are counted for each sample using `kmc` at the specified kmer-size. 
+Kmers are counted for each sample using 
+[kmc](https://github.com/refresh-bio/KMC) at the specified kmer-size. 
 Kmers occurring above or below the specified thresholds will be excluded. 
 See the `kmerkit count` page for details on parallelization and memory
 consumption for optimizing the speed of this step, which is usually 
 the most time consuming. 
 
 ```bash
-kmerkit count --json /tmp/dioecy.json --kmer-size 35 --min-depth 5 --workers 4 
-```
-
-
-```bash
-kmerkit stats --json /tmp/dioecy.json count
+kmerkit count -j /tmp/dioecy.json --kmer-size 35 --min-depth 5 --workers 4 
 ```
 
 ??? tip "kmerkit stats output"
+
+	```bash
+	kmerkit stats -j /tmp/dioecy.json count
+	```
+
 	```console
 	...
 	```
@@ -163,10 +200,12 @@ kmerkit filter \
 	--max_map 0.0 1.0  
 ```
 
-```bash
-kmerkit stats -j /tmp/dioecy.json filter
-```
 ??? tip "kmerkit filter results"
+
+	```bash
+	kmerkit stats -j /tmp/dioecy.json filter
+	```
+
 	```console
 	...
 	```
