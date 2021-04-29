@@ -57,7 +57,7 @@ class Kextract:
         target min number of kmers. If False then only one OR the other
         must contain min kmers (the intersection).
     """
-    def __init__(self, json_file, samples=None, min_kmers_per_read=1, pairs_union=True):
+    def __init__(self, json_file, samples=None, min_kmers_per_read=1, paired_union=True):
 
         # load project
         self.json_file = json_file
@@ -66,7 +66,7 @@ class Kextract:
         # type-check params
         self._params = KextractParams(
             min_kmers_per_read=min_kmers_per_read,
-            pairs_union=True,
+            paired_union=True,
         )
         self.params = self._params.dict()
 
@@ -245,7 +245,7 @@ class Kextract:
                     if 1:  # TODO: support SE data.
                         matching[sname] = lbview.submit(
                             # self.match_paired_reads, sname
-                            self.new_match_paired_reads, sname, self.params["pairs_union"],
+                            self.new_match_paired_reads, sname, self.params["paired_union"],
                         )
                     # else:
                         # lbview.submit(self.concat_reads, sname)
