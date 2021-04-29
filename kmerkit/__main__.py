@@ -281,7 +281,7 @@ def kfilter(
 def extract(
     json_file: Path = typer.Option(..., '-j', '--json'),
     min_kmers_per_read: int = typer.Option(1),
-    keep_paired: bool = typer.Option(True),
+    paired_union: bool = typer.Option(True),
     loglevel: LogLevel = LogLevel.INFO,
     force: bool = typer.Option(False, help="overwrite existing"),  
     workers: int = typer.Option(1, help="N worker processes"),
@@ -314,7 +314,7 @@ def extract(
             json_file=json_file,
             samples=samples,
             min_kmers_per_read=min_kmers_per_read,
-            keep_paired=keep_paired,
+            paired_union=paired_union,
         )
         kex.run(force=force, workers=workers, threads=threads)
     except KmerkitError:
