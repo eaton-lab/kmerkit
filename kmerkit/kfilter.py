@@ -18,18 +18,18 @@ kmerkit filter \
     --traits traits.CSV \
     --min_map 0.0 1.0 \
     --max_map 0.1 1.0 \
-    --min_map_canon 0.0 0.5 \
+    --min_canon 0.5 \
     --min_cov 5
 """
 
 # TODO CANON FILTER:
-#     - canon shouldn't apply to all samples, It should apply
-#       to only those samples for which the kmer is present...
+# - applies at end only to the kmers that passed other filters
+# - count other-canon kmers in group 1 
+# - get counter_subtract: canon-kmers - non-canon-kmers
+# - other-canon kmer sets to count=1
+# - get canon-kmers with freq > X in group 1
+# - get intersection of passed and min-canon-passed
 
-#     - b/c canon is a bit time and disk consuming, we could apply it
-#       after the other filters, so we only have to focus on a reduced
-#       set of kmers. Would this be useful? ... Still need to start by 
-#       counting all non-con kmers in each sample...
 
 import os
 import re
@@ -41,6 +41,7 @@ from loguru import logger
 from kmerkit.kmctools import KMTBIN, info
 from kmerkit.utils import Group, COMPLEX, KmerkitError
 from kmerkit.kschema import KfilterParams, KfilterData, KfilterBase, Project
+from kmerkit.parallel import Cluster
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes

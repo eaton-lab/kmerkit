@@ -165,6 +165,7 @@ class Kextract:
         # -ci<val> : exclude kmers occurring < val times.
         # -cx<val> : exclude kmers occurring > val times.
         # cmd.extend([f'-ci{self.params['min_depth}'])
+        cmd.extend(['-ci1', '-cx1000000'])
 
         # add the input.fastq
         cmd.extend([str(fastq)])

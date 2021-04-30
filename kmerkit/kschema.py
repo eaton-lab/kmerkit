@@ -43,7 +43,7 @@ PLANNED JSON SCHEMA:
 """
 
 # pylint: disable=no-name-in-module
-from enum import IntEnum
+from enum import IntEnum, Enum
 from typing import List, Dict, Optional
 from pathlib import Path
 from pydantic import BaseModel, Field, confloat # FilePath
@@ -133,26 +133,10 @@ class KfilterBase(BaseModel):
 
 # ---------------------------------------------------------------------
 
-class KmatrixParams(BaseModel):
-    counts: bool
-    normalize: bool
-    condense: bool
-    samples: Optional[List[str]]
-
-class KmatrixData(BaseModel):
-    matrix: Path
-    counts: Optional[Path]
-
-class KmatrixBase(BaseModel):
-    params: KmatrixParams = Field(None)
-    data: KmatrixData = Field(None)
-
-# ---------------------------------------------------------------------
-
 class KextractParams(BaseModel):
     min_kmers_per_read: int = 0
     min_depth_kmer: int = 0
-    paired_union: bool
+    paired_union: bool = True
 
 class KextractData(BaseModel):
     data_in: List[Path] = Field(None)
@@ -164,6 +148,48 @@ class KextractBase(BaseModel):
     data: Dict[str, KextractData] = Field(...)
 
 # ---------------------------------------------------------------------
+
+class KmatrixParams(BaseModel):
+    counts: bool = False
+    normalize: bool = False
+    condense: bool = False
+    samples: List[str] = Field(None)
+
+class KmatrixData(BaseModel):
+    data_in: str = Field(None)
+    data_out: Path = Field(None)
+
+class KmatrixBase(BaseModel):
+    params: KmatrixParams = Field(...)
+    data: KmatrixData = Field(...)
+
+# ---------------------------------------------------------------------
+
+# class RateModel(Enum):
+#     all_rates_equal: 0
+#     more_rates: 1
+
+class KtreeParams(BaseModel):
+    tree: Path = Field(None)
+    # root_prior: 
+    # model: 
+    min_z_score: float = 0.
+
+class KtreeData(BaseModel):
+    """
+    output file ideas:
+        - kmers, Liks, Zs
+    """
+    data_in: Path = Field(None) # the filter db that gets -> matrix
+    data_out: List[Path] = Field(None) # 
+
+class KtreeBase(BaseModel):
+    params: KtreeParams = Field(...)
+    data: KtreeData = Field(...)
+
+
+# ---------------------------------------------------------------------
+
 
 class Versions(dict):
     kmerkit: str = "0.0.0"
@@ -182,7 +208,7 @@ class Project(BaseModel):
     kfilter: KfilterBase = Field(None)
     kmatrix: KmatrixBase = Field(None)
     kextract: KextractBase = Field(None)
-    # kgwas:
+    ktree: KtreeBase = Field(None)
 
 
 
