@@ -28,6 +28,14 @@ OUTPUT_PARAMS:
 
 
 
+LOGFORMAT = (
+    "{time:hh:mm} <level>{level: <7}</level> <white>|</white> "
+    "<cyan>{file: <12}</cyan> <white>|</white> "
+    # "<cyan>{function: ^25}</cyan> <white>|</white> "
+    "<level>{message}</level>"
+)
+
+
 class KmerkitError(Exception):
     """
     Exception handler that does clean exit for CLI, but also prints
@@ -131,13 +139,6 @@ def get_traits_dict_from_csv(csv_file, **kwargs):
 
 
 
-def get_fastq_dict_from_samples(samples: List):
-    """
-    Returns a dictionary mapping samples names to a list of files
-    that are present in the JSON database either 
-    """
-
-
 def get_fastq_dict_from_path(
     fastq_path: str = None, 
     fastq_list: List = None, 
@@ -148,6 +149,7 @@ def get_fastq_dict_from_path(
     (e.g., "./data/*.fastq.gz") and parse names from files by 
     splitting on a string separator (such as "_R" to split before
     the _R1 or _R2 designator) and selecting name before the split.
+    This is used by the kmerkit init CLI module.
 
     Parameters
     ----------
@@ -235,8 +237,6 @@ def get_fastq_dict_from_path(
 
 
 
-
-
 def set_loglevel(loglevel="DEBUG"):#, logfile=None):
     """
     Config and start the logger
@@ -245,14 +245,10 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
         "handlers": [
             {
                 "sink": sys.stderr, 
-                "format": (
-                    "{time:hh:mm} <level>{level: <7}</level> <white>|</white> "
-                    "<cyan>{file: <12}</cyan> <white>|</white> "
-                    # "<cyan>{function: ^25}</cyan> <white>|</white> "
-                    "<level>{message}</level>"
-                ),
+                "format": LOGFORMAT, 
                 "level": loglevel,
-                # "enqueue": True,
+                "enqueue": True,
+                "colorize": colorize(),
                 },
             # {
                 # "sink": logfile,                   
@@ -266,39 +262,37 @@ def set_loglevel(loglevel="DEBUG"):#, logfile=None):
 
 
 
-def _num_cpus_unix():
-    """Return the number of active CPUs on a Unix system."""
-    return os.sysconf("SC_NPROCESSORS_ONLN")
-
-
-def _num_cpus_darwin():
-    """Return the number of active CPUs on a Darwin system."""
-    cmd = ['sysctl', '-n', 'hw.ncpu']
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    return proc.stdout.read()
-
-
-def _num_cpus_windows():
-    """Return the number of active CPUs on a Windows system."""
-    return os.environ.get("NUMBER_OF_PROCESSORS")
-
-
-def num_cpus():
+def get_num_cpus():
     """
-    Return the effective number of CPUs in the system as an integer, 
-    copied from the IPython function.
+    Return the effective number of CPUs in the system as an integer for
+    either Unix or MacOSX (Darwin). This code is mostly copied from a
+    similar implementation in IPython.
+    If it can't find a sensible answer, it returns 1.
     """
-    ncpufuncs = {
-        'Linux':_num_cpus_unix,
-        'Darwin':_num_cpus_darwin,
-        'Windows':_num_cpus_windows
-    }
-    ncpufunc = ncpufuncs.get(
-        platform.system(),
-        _num_cpus_unix,
-    )
+    system = platform.system()
+    if system == "Linux":
+        ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
+    elif system == "Darwin":
+        proc = subprocess.run(
+            ['sysctl', '-n', 'hw.ncpu'], check=True, capture_output=True)
+        ncpus = proc.stdout.decode().strip()
+    else:
+        ncpus = os.environ.get("NUMBER_OF_PROCESSORS")
     try:
-        ncpus = max(1,int(ncpufunc()))
+        ncpus = max(1, int(ncpus))
     except:
         ncpus = 1
     return ncpus
+
+
+def colorize():
+    """
+    check whether terminal/tty supports color
+    """
+    try:
+        import IPython
+        TTY1 = bool(IPython.get_ipython())
+    except ImportError:
+        TTY1 = False
+    TTY2 = sys.stdout.isatty()
+    return TTY1 or TTY2
