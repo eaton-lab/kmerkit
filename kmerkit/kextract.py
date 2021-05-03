@@ -16,9 +16,8 @@ CLI usage:
 ----------
 kmerkit kextract \
     --json /tmp/test.json \
-    --samples ... \
-    --min-kmers-per-read 5
-
+    --min-kmers-per-read 5 \
+    A B C
 """
 
 import os
@@ -30,7 +29,7 @@ import concurrent.futures
 import numpy as np
 from loguru import logger
 from kmerkit.kmctools import KMTBIN
-from kmerkit.utils import KmerkitError, num_cpus
+from kmerkit.utils import KmerkitError, get_num_cpus
 from kmerkit.kschema import Project, KextractData, KextractParams, KextractBase
 # from kmerkit.parallel import Cluster
 
@@ -42,8 +41,6 @@ class Kextract:
     """
     Extract fastq reads containing target kmers and write to new files.
 
-    Files 
-
     Parameters
     ==========
     json_file (str):
@@ -52,7 +49,7 @@ class Kextract:
         ...
     fastq_dict (dict):
         ...
-    pairs_union (bool):
+    paired_union (bool):
         Keep pairs as long as one or the other (the union) contains the 
         target min number of kmers. If False then only one OR the other
         must contain min kmers (the intersection).
@@ -165,7 +162,7 @@ class Kextract:
         # -ci<val> : exclude kmers occurring < val times.
         # -cx<val> : exclude kmers occurring > val times.
         # cmd.extend([f'-ci{self.params['min_depth}'])
-        cmd.extend(['-ci1', '-cx1000000'])
+        # cmd.extend(['-ci1', '-cx1000000'])
 
         # add the input.fastq
         cmd.extend([str(fastq)])
@@ -202,7 +199,6 @@ class Kextract:
             raise KmerkitError("Preventing data overwrite")        
 
 
-
     def run(self, force=False, threads=None, workers=None):
         """
         Iterate over all fastq files to call filter funcs.
@@ -213,13 +209,13 @@ class Kextract:
 
         # set cores values to limit njobs to ncores / 4
         if workers in [0, None]:
-            workers = max(1, int(np.ceil(num_cpus() / 4)))
+            workers = max(1, int(np.ceil(get_num_cpus() / 4)))
             threads = 4
 
         # if user set workers, then scale threads to match
         else:
             workers = int(workers)
-            threads = (threads if threads else int(num_cpus() / workers))
+            threads = (threads if threads else int(get_num_cpus() / workers))
             # (threads if threads else 4)
         logger.debug(f"workers={workers}; threads={threads};")
 
@@ -246,7 +242,9 @@ class Kextract:
                     if 1:  # TODO: support SE data.
                         matching[sname] = lbview.submit(
                             # self.match_paired_reads, sname
-                            self.new_match_paired_reads, sname, self.params["paired_union"],
+                            self.new_match_paired_reads, 
+                            sname, 
+                            self.params["paired_union"],
                         )
                     # else:
                         # lbview.submit(self.concat_reads, sname)
@@ -279,7 +277,6 @@ class Kextract:
             out.write(Project(**self.project).json(indent=4))
 
 
-
     def new_match_paired_reads(self, sname, union=True):
         """
         Get read pairs for all reads in which EITHER has a kmer match.
@@ -296,7 +293,8 @@ class Kextract:
         ]
 
         # -----------------------------------------------------
-        # create set of all read names in new kmer-matched file
+        # create set of all read names in new kmer-matched filed
+        # TODO: parallel
         lines1 = get_line_nos(old_fastqs[0], new_fastqs[0])
         lines2 = get_line_nos(old_fastqs[1], new_fastqs[1])
 
@@ -341,7 +339,7 @@ class Kextract:
 
         # save each 4-line chunk to chunks if it lidxs
         chunks1 = []
-        chunks2 = []        
+        chunks2 = []
         idx = 0
 
         # iterate until end of file
@@ -385,22 +383,22 @@ def get_line_nos(fastq_big, fastq_small):
 
     # get 4-line iterator
     bi_data = (
-        gzip.open(fastq_big, 'rt') if fastq_big.endswith('.gz') 
+        gzip.open(fastq_big, 'rt') if fastq_big.endswith('.gz')
         else open(fastq_big, 'r')
     )
     quart_big = zip(bi_data, bi_data, bi_data, bi_data)
 
     # get 4-line iterator
     si_data = (
-        gzip.open(fastq_small, 'rt') if fastq_small.endswith('.gz') 
+        gzip.open(fastq_small, 'rt') if fastq_small.endswith('.gz')
         else open(fastq_small, 'r')
     )
     quart_small = zip(si_data, si_data, si_data, si_data)
 
     # get first chunk (UNLESS file is empty!)
     try:
-        header_big = next(quart_big)[0].strip()
-        header_small = next(quart_small)[0].strip()
+        header_big = next(quart_big)[0]
+        header_small = next(quart_small)[0]
     except StopIteration:
         return None
 
@@ -409,15 +407,16 @@ def get_line_nos(fastq_big, fastq_small):
         try:
             # advance both if they match, else only the big one
             if header_big == header_small:
-                header_big = next(quart_big)[0].strip()                
-                header_small = next(quart_small)[0].strip()
+                header_big, seqb, _, _ = next(quart_big)
+                header_small = next(quart_small)[0]
                 line_nos.add(idx)
+                # print(idx, len(line_nos), seqb)
             else:
-                header_big = next(quart_big)[0].strip()
+                header_big = next(quart_big)[0]
             idx += 1
         except StopIteration:
             break
-    return line_nos    
+    return line_nos 
 
 
 
