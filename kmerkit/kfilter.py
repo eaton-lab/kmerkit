@@ -35,13 +35,14 @@ import os
 import re
 import itertools
 import subprocess
+import concurrent.futures
 from math import floor
 
 from loguru import logger
 from kmerkit.kmctools import KMTBIN, info
 from kmerkit.utils import Group, COMPLEX, KmerkitError
 from kmerkit.kschema import KfilterParams, KfilterData, KfilterBase, Project
-from kmerkit.parallel import Cluster
+# from kmerkit.parallel import Cluster
 
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-instance-attributes
@@ -127,7 +128,6 @@ class Kfilter:
         self.dbs = {}
 
 
-
     def select_samples(self):
         """
         Filter samples to those present in both database and traits_dict
@@ -175,7 +175,7 @@ class Kfilter:
         only_traits = setp.difference(sets)
         if only_traits:
             logger.warning(
-                "Skipping samples in traits but not in kmer_database: "
+                "Skipping samples in groups or kcount database but not both:"
                 f"{only_traits}"
             )
 
@@ -301,22 +301,23 @@ class Kfilter:
         os.remove(complex_file)
 
 
-    def get_all_single_counts(self):
+    def get_all_single_counts(self, workers=4, threads=2):
         """
         PARALLELIZE THIS -- seems to max out at 200%
         Prepare single count database of every sample which will be used
         for presence/absence set arithmetic in filters.
         """
-        for sname in self.database:
-            cmd = [
-                KMTBIN, "-hp", "-t8",
-                "transform",
-                self.database[sname]['database'],
-                "set_counts", "1",
-                f"{self.prefix}_{sname}_count1",
-            ]
-            logger.debug(" ".join(cmd))
-            subprocess.run(cmd, check=True)    
+        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as pool:           
+            for sname in self.database:
+                cmd = [
+                    KMTBIN, "-hp", "-t{}".format(threads),
+                    "transform",
+                    self.database[sname]['database'],
+                    "set_counts", "1",
+                    f"{self.prefix}_{sname}_count1",
+                ]
+                logger.debug(" ".join(cmd))
+                pool.submit(subprocess.run, cmd)
 
 
     def get_union_with_counts(self):
@@ -508,14 +509,23 @@ class Kfilter:
 
         # MINCANON FILTER ---------------------------------------------
         # get kmers passing the mincov_canon filter (canon-filtered)
-        # self.filter_canon()       
+        # self.filter_canon()
+
+        # distributed on four workers
         self.get_all_single_counts()
-        self.get_union_with_counts()
-        self.get_min_cov_passed_set()
-        self.get_group0_filtered_set()
-        self.get_group1_passed_set()
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:
+            pool.submit(self.get_union_with_counts)
+            pool.submit(self.get_min_cov_passed_set)
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:            
+            pool.submit(self.get_group0_filtered_set)
+            pool.submit(self.get_group1_passed_set)
+
         self.get_passed_intersect()
-        self.get_kmers_passed()
+        with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:
+            pool.submit(self.get_kmers_passed)
+            pool.submit(self.get_kmers_passed_counts)
 
         pre = f"{self.prefix}_"
         kmers_total = info(pre + "union_counts")
