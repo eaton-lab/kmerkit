@@ -1,25 +1,9 @@
 #!/usr/bin/env python
 
 """
-TODO:
-We could develop command line tools that combine multiple class calls together.
-
-kcount --name hybridus \
-       --workdir /tmp \
-       --fastqs ~/Documents/ipyrad/isolation/reftest_fastqs/[1-2]*_0_R*_.fastq.gz \
-       --trim \
-       --canonical \
-       --kmersize 31 \
-	   --mindepth 1 \
-
-
-ktree --name hybridus \
-	  --workdir /tmp \
-      --tree hybridus-tree.nwk \
-      --model ... \
-      --threshold ... \
-      --target-options ... \
+The command line interface for kmerkit.
 """
+
 import os
 from enum import Enum
 import tempfile
@@ -55,7 +39,7 @@ app = typer.Typer(add_completion=True, context_settings=CONTEXT_SETTINGS)
 
 
 def version_callback(value: bool):
-    "Part 1 of overly complicated typer --version option"
+    "Adding a --version option to the CLI"
     if value:
         typer.echo(f"kmerkit {__version__}")
         raise typer.Exit()
@@ -84,11 +68,11 @@ def main(
     )
 
 
-@app.command(context_settings=CONTEXT_SETTINGS)
+@app.command()
 def init(
     name: str = typer.Option("test", "-n", "--name", help="Project name prefix"),
     workdir: str = typer.Option(tempfile.gettempdir(), "-w", "--workdir", help="Project directory"),
-    delim: str = typer.Option("_R", help="sample name delimiter"),
+    delim: str = typer.Option("_", help="sample name delimiter"),
     loglevel: LogLevel = typer.Option(LogLevel.INFO, help="logging level"),
     force: bool = typer.Option(False, help="overwrite existing"),
     data: List[Path] = typer.Argument(...,
@@ -100,17 +84,16 @@ def init(
         allow_dash=True,
         help=("File path(s) to input fastq/a data files")
         ),
-    # trim_reads: bool = typer.Option(True),
-    # subsample_reads: int = typer.Option(None),
     ):
     """
     Initialize a kmerkit project from fastq/a input files.
 
     Creates a JSON project file in <workdir>/<name>.json. Sample
     names are parsed from input filenames by splitting on the last
-    occurrence of the optional 'delim' character (default is '_R').
+    occurrence of the optional 'delim' character (default is '_').
     Paired reads are automatically detected from _R1 and _R2 in names.
-    Examples:
+    Multiple files can be selected using regular expressions for the
+    data filepath input, or by listing multiple filepaths. Examples:
 
     kmerkit init -n test -w /tmp ./data/fastqs/*.gz\n
     kmerkit init -n test -w /tmp ./data-1/A.fastq ./data-2/B.fastq
@@ -118,11 +101,10 @@ def init(
     # parse the fastq_dict from string
     set_loglevel(loglevel)
     fastq_dict = get_fastq_dict_from_path(None, data, delim)
-
     try:
         init_project(name=name, workdir=workdir, fastq_dict=fastq_dict, force=force)
     except KmerkitError:
-        typer.Abort()
+        typer.Exit()
 
 
 
@@ -148,17 +130,17 @@ def stats(
             for mod in module:
                 kst.run(mod.lower().lstrip('k'))
     except KmerkitError:
-        typer.Abort()
+        typer.Exit()
 
 
-@app.command(context_settings=CONTEXT_SETTINGS)
+@app.command()
 def count(
     json_file: Path = typer.Option(..., "-j", "--json"),
     kmer_size: int = typer.Option(17, "-k", "--kmer-size", min=2),
     min_depth: int = typer.Option(1, min=1),
     max_depth: int = typer.Option(int(1e9), min=1),
-    max_count: int = typer.Option(65535, min=255),
-    canonical: bool = typer.Option(True),
+    max_count: int = typer.Option(255),
+    canonical: bool = typer.Option(False),
     workers: int = typer.Option(1, help="N worker processes"),
     threads: int = typer.Option(None, help="N threads per worker"),
     force: bool = typer.Option(False, help="overwrite existing"),
@@ -207,15 +189,6 @@ def count(
         )
     except KmerkitError as exc:
         typer.Abort(exc)
-
-
-# @app.command()
-# def group(
-#     json_file: Path = typer.Option(..., '-j', '--json'),
-#     group: List[List[str]] = typer.Option(None),
-#     ):
-#     print(group)
-
 
 
 @app.command(name='filter')
