@@ -44,7 +44,7 @@ import numpy as np
 from loguru import logger
 
 from kmerkit.kmctools import KMCBIN
-from kmerkit.utils import get_fastq_dict_from_path, KmerkitError, num_cpus
+from kmerkit.utils import get_fastq_dict_from_path, KmerkitError, get_num_cpus
 from kmerkit.kschema import KcountBase, KcountData, KcountParams, Project
 
 
@@ -188,12 +188,12 @@ class Kcount:
 
         # set cores values to limit njobs to ncores / 4
         if workers in [0, None]:
-            workers = max(1, int(np.ceil(num_cpus() / 4)))
+            workers = max(1, int(np.ceil(get_num_cpus() / 4)))
             threads = 4
         # if user set workers, then scale threads to match
         else:
             workers = int(workers)
-            threads = (threads if threads else int(num_cpus() / workers))
+            threads = (threads if threads else int(get_num_cpus() / workers))
             # (threads if threads else 4)
         logger.debug(f"workers={workers}; threads={threads}; max_ram={max_ram}")        
 
