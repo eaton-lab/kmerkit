@@ -13,7 +13,7 @@ import concurrent.futures
 import numpy as np
 from loguru import logger
 from kmerkit.kmctools import FASTPBIN
-from kmerkit.utils import KmerkitError, num_cpus
+from kmerkit.utils import KmerkitError, get_num_cpus
 from kmerkit.kschema import Project, KtrimData, KtrimBase, KtrimParams
 
 
@@ -62,7 +62,7 @@ class Ktrim:
 
         # set cores values to limit njobs to ncores / 6
         if workers in [0, None]:
-            workers = max(1, int(np.ceil(num_cpus() / 6)))
+            workers = max(1, int(np.ceil(get_num_cpus() / 6)))
         threads = (threads if threads else 4)
         logger.debug(f"workers={workers}; threads={threads}")        
 
