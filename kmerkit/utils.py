@@ -294,5 +294,5 @@ def colorize():
         TTY1 = bool(IPython.get_ipython())
     except ImportError:
         TTY1 = False
-    TTY2 = sys.stdout.isatty()
+    TTY2 = sys.stderr.isatty()
     return TTY1 or TTY2
