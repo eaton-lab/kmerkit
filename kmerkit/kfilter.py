@@ -124,8 +124,30 @@ class Kfilter:
         # converts filter params to integers and checks
         self.filters_to_ints()
 
-        # keep track of database
-        self.dbs = {}
+        # cleanup old db files
+        self.cleanup_old()
+
+
+    def cleanup_old(self):
+        """
+        Cleanup any previous dbs with this prefix name.
+        """
+        fnames = []
+        for sname in self.database:
+            fnames.append(f"{self.prefix}_{sname}_count1.kmc_suf")
+            fnames.append(f"{self.prefix}_{sname}_count1.kmc_pre")            
+        suffs = [
+            "map-0-filtered", "map-1-passed", "min_cov-passed", 
+            "passed_intersect", "union", "union_counts",
+        ]
+        for suff in suffs:
+            fnames.append(f"{self.prefix}_{suff}.kmc_suf")
+            fnames.append(f"{self.prefix}_{suff}.kmc_pre")            
+        for fname in fnames:
+            if os.path.exists(fname):
+                logger.debug(f"removing old: {fname}")
+                os.remove(fname)
+
 
 
     def select_samples(self):
@@ -259,8 +281,6 @@ class Kfilter:
         # INPUT: get sample names and filters
         input_list = []
         for sname, database in dbdict.items():
-
-            # build input string
             cmdstr = f"{sname} = {database} -ci1 -cx1000000000"
             input_list.append(cmdstr)
         input_str = "\n".join(input_list)
@@ -282,7 +302,7 @@ class Kfilter:
         logger.debug(complex_string)      
 
         # write to a tmp file
-        complex_file = self.prefix + "_complex.txt"
+        complex_file = self.prefix + f"{out_name}_complex.txt"
         with open(complex_file, 'w') as out:
             out.write(complex_string)
 
@@ -298,16 +318,16 @@ class Kfilter:
             # cwd=self.workdir,
         )
         logger.info(f"new database: {os.path.basename(out_name)}")
-        os.remove(complex_file)
+        # os.remove(complex_file)
 
 
     def get_all_single_counts(self, workers=4, threads=2):
         """
-        PARALLELIZE THIS -- seems to max out at 200%
         Prepare single count database of every sample which will be used
-        for presence/absence set arithmetic in filters.
+        for presence/absence set arithmetic in filters. Why is this so
+        slow... disk io limits?
         """
-        with concurrent.futures.ProcessPoolExecutor(max_workers=4) as pool:           
+        with concurrent.futures.ProcessPoolExecutor(workers) as pool:           
             for sname in self.database:
                 cmd = [
                     KMTBIN, "-hp", "-t{}".format(threads),
@@ -344,18 +364,21 @@ class Kfilter:
         Prepare database of kmers that did NOT occur across enough
         samples in total dataset.
         """
-        dbdict = {
-            idx: f"{self.prefix}_{sname}_count1"
-            for idx, sname in enumerate(self.database)
-        }        
-        # get kmers NOT passing the mincov filter
-        self.call_complex(
-            dbdict=dbdict,
-            oper="union",
-            min_depth=self.params['min_cov'],
-            max_depth=100000000,
-            out_name='min_cov-passed',
-        )
+        if self.params["min_cov"] == 1:
+            logger.debug("no min_cov filter, skipping min_cov_passed_set.")
+        else:
+            dbdict = {
+                idx: f"{self.prefix}_{sname}_count1"
+                for idx, sname in enumerate(self.database)
+            }        
+            # get kmers NOT passing the mincov filter
+            self.call_complex(
+                dbdict=dbdict,
+                oper="union",
+                min_depth=self.params['min_cov'],
+                max_depth=100000000,
+                out_name='min_cov-passed',
+            )
 
 
     def get_group0_filtered_set(self):
@@ -437,19 +460,30 @@ class Kfilter:
 
     def get_passed_intersect(self):
         """
-        Get the union of FILTERED kmers sets
+        Get the union of passed kmer sets. If min_cov is absent then 
+        simply mv the map-1-passed to passed_intersect.
         """
-        dbdict = {
-            0: f"{self.prefix}_min_cov-passed",
-            1: f"{self.prefix}_map-1-passed",
-        }
-        self.call_complex(
-            dbdict=dbdict,
-            oper="intersect",
-            min_depth=1,
-            max_depth=10000000,
-            out_name='passed_intersect'
-        )
+        if not os.path.exists(f"{self.prefix}_min_cov-passed.kmc_suf"):
+            for suff in (".kmc_pre", ".kmc_suf"):
+                os.rename(
+                    f"{self.prefix}_map-1-passed{suff}",
+                    f"{self.prefix}_passed_intersect{suff}",
+                )
+            logger.debug(
+                "no mincov filter, map-1-passed becomes passed_intersect")
+
+        else:
+            dbdict = {
+                0: f"{self.prefix}_min_cov-passed",
+                1: f"{self.prefix}_map-1-passed",
+            }
+            self.call_complex(
+                dbdict=dbdict,
+                oper="intersect",
+                min_depth=1,
+                max_depth=10000000,
+                out_name='passed_intersect'
+            )
 
 
     def get_kmers_passed(self):
@@ -511,33 +545,47 @@ class Kfilter:
         # get kmers passing the mincov_canon filter (canon-filtered)
         # self.filter_canon()
 
-        # distributed on four workers
+        # distributed on four workers, needed for mincov, groups
         self.get_all_single_counts()
 
+        # get full unions w/ and w/o counts (skip w/o if no mincov filter)
         with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:
             pool.submit(self.get_union_with_counts)
             pool.submit(self.get_min_cov_passed_set)
 
+        # get groups
         with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:            
             pool.submit(self.get_group0_filtered_set)
             pool.submit(self.get_group1_passed_set)
 
+        # group1 * min_cov -> passed_intersect
         self.get_passed_intersect()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=2) as pool:
-            pool.submit(self.get_kmers_passed)
-            pool.submit(self.get_kmers_passed_counts)
+
+        # passed_intersect - group0 -> passed
+        self.get_kmers_passed()
+
+        # union_counts * passed -> passed_counts 
+        self.get_kmers_passed_counts()
 
         pre = f"{self.prefix}_"
         kmers_total = info(pre + "union_counts")
         kmers_passed = info(pre + "passed")
-        kmers_min_cov_passed = info(pre + "min_cov-passed")
+        kmers_min_cov_passed = (
+            info(pre + "min_cov-passed") 
+            if os.path.exists(f"{self.prefix}_min_cov-passed.kmc_suf")
+            else 0
+        )
         stats = KfilterData(
             kmers_total=kmers_total,
             kmers_passed_total=kmers_passed,
             kmers_filtered_total=kmers_total - kmers_passed,
             kmers_filtered_by_min_cov=kmers_total - kmers_min_cov_passed,
             kmers_filtered_by_group0_map=info(pre + "map-0-filtered"),
-            kmers_filtered_by_group1_map=kmers_total - info(pre + "map-1-passed"),
+            kmers_filtered_by_group1_map=(
+                kmers_total - info(pre + "map-1-passed")
+                if os.path.exists(f"{self.prefix}_map-1-passed.kmc_suf")
+                else kmers_total - info(pre + "passed_intersect")
+            ),
             # kmers_filtered_by_canonized=info(),
             database_filtered=pre + "filtered",
             database_passed=pre + "passed",
@@ -550,15 +598,15 @@ class Kfilter:
                 "error in kmer comparisons: total - filtered != passed")
 
         # cleanup tmp files
-        fnames = [
-            "map-0-filtered", "map-0-filter-min", "map-0-filter-max",
-            "map-1-filtered", "map-1-filter-min", "map-1-filter-max",
-            "union", "min_cov",
-        ]
-        for fname in fnames:
-            fname = self.prefix + fname
-            if os.path.exists(fname):
-                os.remove(fname)
+        # fnames = [
+        #     "map-0-filtered", "map-0-filter-min", "map-0-filter-max",
+        #     "map-1-filtered", "map-1-filter-min", "map-1-filter-max",
+        #     "union", "min_cov",
+        # ]
+        # for fname in fnames:
+        #     fname = self.prefix + fname
+        #     if os.path.exists(fname):
+        #         os.remove(fname)
 
         # save to JSON
         # limit = ["name", "workdir", "versions", "kinit", "kcount"]
@@ -743,23 +791,22 @@ if __name__ == "__main__":
     TRAITS = kmerkit.utils.get_traits_dict_from_csv(PHENOS)
 
     # load database with phenotypes data
-    kgp = Kfilter(
-        json_file="/tmp/test.json",
-        traits=TRAITS,
-        min_cov=0.5,
-        min_map={
-            0: 0.0,
-            1: 0.5,
-        },
-        max_map={
-            0: 0.0,
-            1: 1.0,
-        },
-        min_map_canon={
-            0: 0.0,
-            1: 0.5,
-        },
-    )
+    # kgp = Kfilter(
+    #     json_file="/tmp/test.json",
+    #     min_cov=0.5,
+    #     min_map={
+    #         0: 0.0,
+    #         1: 0.5,
+    #     },
+    #     max_map={
+    #         0: 0.0,
+    #         1: 1.0,
+    #     },
+    #     min_map_canon={
+    #         0: 0.0,
+    #         1: 0.5,
+    #     },
+    # )
 
-    # dump the kmers to a file
-    kgp.run()
+    # # dump the kmers to a file
+    # kgp.run()
