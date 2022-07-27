@@ -6,18 +6,54 @@ Call convenient KMC_tools wrappers
 
 import os
 import sys
+import shutil
 import subprocess
 from loguru import logger
 from kmerkit.utils import KmerkitError
 
 
-FASTPBIN = os.path.join(sys.prefix, "bin", "fastp")
-KMCBIN = os.path.join(sys.prefix, "bin", "kmc")
-KMTBIN = os.path.join(sys.prefix, "bin", "kmc_tools")
-assert os.path.exists(KMCBIN), (
-    "kmc binary missing; call 'conda install kmc -c bioconda'")
+# FASTPBIN = os.path.join(sys.prefix, "bin", "fastp")
+# KMCBIN = os.path.join(sys.prefix, "bin", "kmc")
+# KMTBIN = os.path.join(sys.prefix, "bin", "kmc_tools")
+
+# Using shutil alternative installation can be used, not only conda installations.
+# FASTPBIN = shutil.which("fastp") 
+# KMCBIN = shutil.which("kmc")
+# KMTBIN = shutil.which("kmc_tools")
 
 
+# assert FASTPBIN, (
+#     "fastp binary missing; call 'conda install -c bioconda fastp'")
+
+# assert KMCBIN, (
+#     "kmc binary missing; call 'conda install kmc -c bioconda'")
+
+# assert KMTBIN, (
+#     "kmc_tools binary missing; verify your kmc installation 'conda install kmc -c bioconda'")
+
+
+# Define info for all dependencies
+dependencies = {"fastp": {"var": "FASTPBIN", 
+                          "error_message": "- fastp binary missing; call 'conda install -c bioconda fastp'"},
+               "kmc": {"var": "KMCBIN", 
+                       "error_message": "- kmc binary missing; call 'conda install kmc -c bioconda'"},
+               "kmc_tools": {"var": "KMTBIN", 
+                             "error_message": "- kmc_tools binary missing; verify your kmc installation 'conda install kmc -c bioconda'"}
+               }
+
+# Check binaries and compose error message if needed
+error_message = ""
+for binary in dependencies:
+    binary_path = shutil.which(binary) #check path in any part of the system
+    globals()[dependencies[binary]["var"]] = binary_path #set constant variable 
+    if not binary_path: #if not found add error message to final display
+        error_message += "\n" + dependencies[binary]["error_message"]
+
+# Asset if some binary is missed
+assert not error_message, (error_message)
+    
+
+    
 def info(database, mindepth=0):
     """
     Returns the number of kmers in the database. Option mindepth
