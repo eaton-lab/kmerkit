@@ -14,6 +14,7 @@ from loguru import logger
 
 from kmerkit.kinit import init_project
 from kmerkit.kcount import Kcount
+from kmerkit.kfilter import Kfilter
 from kmerkit.kextract import Kextract
 from kmerkit.kmatrix import Kmatrix
 from kmerkit.kmctools import KMCBIN, KMTBIN
